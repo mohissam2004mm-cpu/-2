@@ -1,0 +1,2086 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { BookOpen, Image as ImageIcon, Loader2, Sparkles, Download, FileQuestion, CheckCircle2, Upload, X, FileText, File as FileIcon, Pencil, Trash2, Plus, Save, User, GraduationCap, XCircle, AlertCircle, Languages, ChevronUp, ChevronDown, GripVertical, ZoomIn, RefreshCw, Printer, FolderOpen, Sheet, Info, Code } from 'lucide-react';
+
+const QUESTION_TYPES = [
+  "متنوع (افتراضي)", "اختيار من متعدد", "صح أو خطأ", "إكمال الفراغ", "إجابة قصيرة",
+  "علل / اذكر السبب", "ترتيب الأحداث أو الخطوات", "تصنيف في جدول", "ترتيب أحرف الكلمة",
+  "مقارنة بين مفهومين", "حل مشكلات رياضية/علمية", "تعريف مصطلحات", "تصويب الخطأ في الجملة",
+  "استخراج من النص / استنتاج", "تفكير ناقد ورأي شخصي", "القراءة والاستيعاب"
+];
+
+const QUESTION_TYPES_EN = [
+  "Mixed (Default)", "Multiple Choice", "True or False", "Fill in the Blanks", "Short Answer",
+  "Give Reasons / Explain Why", "Order Events or Steps", "Categorize in Table", "Word Letters Order",
+  "Compare Concepts", "Solve Math/Science Problems", "Define Terms", "Correct the Sentence",
+  "Extract from Text / Infer", "Critical Thinking & Personal Opinion", "Reading Comprehension"
+];
+
+const SUBJECTS = [
+  "العلوم", "الرياضيات", "اللغة العربية", "اللغة الإنجليزية", 
+  "التربية الإسلامية", "التاريخ", "الجغرافيا", "الفيزياء", 
+  "الكيمياء", "الأحياء", "الحاسب الآلي", "الدراسات الاجتماعية", 
+  "التربية الفنية", "التربية البدنية", "أخرى"
+];
+
+const SUBJECTS_EN = [
+  "Science", "Mathematics", "Arabic Language", "English Language", 
+  "Islamic Education", "History", "Geography", "Physics", 
+  "Chemistry", "Biology", "Computer Science", "Social Studies", 
+  "Art Education", "Physical Education", "Other"
+];
+
+const GRADES = [
+  "الصف الأول", "الصف الثاني", "الصف الثالث", "الصف الرابع", 
+  "الصف الخامس", "الصف السادس", "الصف السابع", "الصف الثامن", 
+  "الصف التاسع", "الصف العاشر", "الصف الحادي عشر", "الصف الثاني عشر"
+];
+
+const GRADES_EN = [
+  "Grade 1", "Grade 2", "Grade 3", "Grade 4", 
+  "Grade 5", "Grade 6", "Grade 7", "Grade 8", 
+  "Grade 9", "Grade 10", "Grade 11", "Grade 12"
+];
+
+const BLOOM_LEVELS_AR = ['التذكر', 'الفهم', 'التطبيق', 'التحليل', 'التقييم', 'الابتكار'];
+const BLOOM_LEVELS_EN = ['Remembering', 'Understanding', 'Applying', 'Analyzing', 'Evaluating', 'Creating'];
+
+export default function App() {
+  const [language, setLanguage] = useState('ar'); 
+  const isArabic = language === 'ar';
+
+  const [subject, setSubject] = useState(() => localStorage.getItem('swg_subject') || SUBJECTS[0]);
+  const [grade, setGrade] = useState(() => localStorage.getItem('swg_grade') || GRADES[0]);
+  const [lesson, setLesson] = useState('');
+  const [teacherName, setTeacherName] = useState(() => localStorage.getItem('swg_teacher') || '');
+  
+  const [selectedTypes, setSelectedTypes] = useState([{ type: QUESTION_TYPES[0], count: 5 }]);
+  const [readingLength, setReadingLength] = useState('medium'); 
+  const [readingQuestionsCount, setReadingQuestionsCount] = useState(3);
+  const [files, setFiles] = useState([]);
+  const [fileError, setFileError] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [isGeneratingSheet, setIsGeneratingSheet] = useState(false);
+  const [isGeneratingExtra, setIsGeneratingExtra] = useState(false);
+  const [error, setError] = useState(null);
+  const [viewMode, setViewMode] = useState('teacher'); 
+  const [swapSelection, setSwapSelection] = useState(null);
+  const [classifySelection, setClassifySelection] = useState(null);
+  const [enlargedImage, setEnlargedImage] = useState(null);
+  const [extraQuestionType, setExtraQuestionType] = useState(QUESTION_TYPES[1]);
+  
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printTarget, setPrintTarget] = useState('student'); 
+  const [docSettings, setDocSettings] = useState({ type: 'worksheet', time: '45', marks: '' });
+
+  const isReadingType = selectedTypes.some(st => st.type === "القراءة والاستيعاب" || st.type === "Reading Comprehension");
+  const totalMarks = questions.reduce((sum, q) => sum + (parseFloat(q.marks) || 0), 0);
+
+  useEffect(() => {
+    localStorage.setItem('swg_subject', subject);
+    localStorage.setItem('swg_grade', grade);
+    localStorage.setItem('swg_teacher', teacherName);
+  }, [subject, grade, teacherName]);
+
+  const handleSaveProject = () => {
+    const projectData = { subject, grade, lesson, teacherName, selectedTypes, readingLength, readingQuestionsCount, questions };
+    const blob = new Blob([JSON.stringify(projectData)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${subject}_${lesson}_Backup.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLoadProject = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        if (data.subject) setSubject(data.subject);
+        if (data.grade) setGrade(data.grade);
+        if (data.lesson) setLesson(data.lesson);
+        if (data.teacherName !== undefined) setTeacherName(data.teacherName);
+        if (data.selectedTypes) setSelectedTypes(data.selectedTypes);
+        if (data.readingLength) setReadingLength(data.readingLength);
+        if (data.readingQuestionsCount) setReadingQuestionsCount(data.readingQuestionsCount);
+        if (data.questions) setQuestions(data.questions);
+      } catch (err) {
+        alert(isArabic ? 'ملف البيانات غير صالح أو تالف!' : 'Invalid or corrupted data file!');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; 
+  };
+
+  const handleExportCSV = () => {
+      if (questions.length === 0) return;
+      const headers = isArabic 
+          ? ['رقم السؤال', 'نوع السؤال', 'مستوى بلوم', 'الدرجة', 'نص السؤال', 'الإجابة الصحيحة', 'الخيارات المتاحة']
+          : ['Q. No.', 'Question Type', 'Bloom Level', 'Marks', 'Question Text', 'Correct Answer', 'Options'];
+      
+      const rows = questions.map((q, i) => {
+          const typeStr = q.type;
+          const bloomStr = q.bloomLevel || '';
+          const marksStr = q.marks || 1;
+          const textStr = (q.text || '').replace(/"/g, '""');
+          const ansStr = typeof q.answer === 'string' ? q.answer.replace(/"/g, '""') : JSON.stringify(q.answer).replace(/"/g, '""');
+          const optStr = (q.options || []).join(' | ').replace(/"/g, '""');
+          return `"${i+1}","${typeStr}","${bloomStr}","${marksStr}","${textStr}","${ansStr}","${optStr}"`;
+      });
+
+      const csvContent = "\uFEFF" + headers.join(',') + '\n' + rows.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${subject}_${lesson}_Questions.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  };
+
+  const handleExportGAS = () => {
+      if (questions.length === 0) return;
+      let script = `// التعليمات:\n`;
+      script += `// 1. افتح الرابط: https://script.google.com/\n`;
+      script += `// 2. أنشئ مشروعاً جديداً (New Project) والصق هذا الكود بالكامل\n`;
+      script += `// 3. اضغط على زر "تشغيل" (Run) من الشريط العلوي\n`;
+      script += `// 4. قم بمنح الصلاحيات المطلوبة وسيقوم الكود بإنشاء النموذج تلقائياً في حسابك\n\n`;
+      
+      script += `function createWorksheetForm() {\n`;
+      script += `  var form = FormApp.create(${JSON.stringify(`${subject} - ${lesson}`)});\n`;
+      script += `  form.setDescription(${JSON.stringify(`المادة: ${subject}\nالصف: ${grade}\nالمعلم: ${teacherName}`)});\n`;
+      script += `  form.setIsQuiz(true);\n\n`;
+      
+      let renderedReading = new Set();
+      
+      questions.forEach((q, i) => {
+          if (q.readingText && !renderedReading.has(q.readingText)) {
+              script += `  form.addSectionHeaderItem().setTitle(${JSON.stringify(isArabic ? 'اقرأ النص التالي ثم أجب:' : 'Read the following text:')}).setHelpText(${JSON.stringify(q.readingText)});\n\n`;
+              renderedReading.add(q.readingText);
+          }
+          
+          let title = `${i+1}. ${q.text}`;
+          let marks = parseFloat(q.marks) || 1;
+          
+          if (q.type === 'mcq') {
+              script += `  var item${i} = form.addMultipleChoiceItem();\n`;
+              script += `  item${i}.setTitle(${JSON.stringify(title)}).setPoints(${marks});\n`;
+              script += `  item${i}.setChoices([\n`;
+              (q.options || []).forEach(opt => {
+                  let isCorrect = (opt === q.answer);
+                  script += `    item${i}.createChoice(${JSON.stringify(opt)}, ${isCorrect}),\n`;
+              });
+              script += `  ]);\n\n`;
+          } else if (q.type === 'short' || q.type === 'letters') {
+              script += `  var item${i} = form.addTextItem();\n`;
+              script += `  item${i}.setTitle(${JSON.stringify(title)}).setPoints(${marks});\n\n`;
+          } else if (q.type === 'classify') {
+              // حصرياً استخدام addGridItem حسب القاعدة المطلوبة
+              script += `  var item${i} = form.addGridItem();\n`; 
+              script += `  item${i}.setTitle(${JSON.stringify(title)});\n`;
+              script += `  item${i}.setRows(${JSON.stringify(q.options || [])});\n`;
+              script += `  item${i}.setColumns(${JSON.stringify(q.categories || [])});\n\n`;
+          } else if (q.type === 'order') {
+              // حصرياً استخدام addGridItem حسب القاعدة المطلوبة للترتيب أيضاً
+              const cols = (q.options || []).map((_, idx) => (idx + 1).toString());
+              script += `  var item${i} = form.addGridItem();\n`; 
+              script += `  item${i}.setTitle(${JSON.stringify(title)});\n`;
+              script += `  item${i}.setRows(${JSON.stringify(q.options || [])});\n`;
+              script += `  item${i}.setColumns(${JSON.stringify(cols)});\n\n`;
+          }
+      });
+      
+      script += `  Logger.log("تم إنشاء النموذج بنجاح! رابط التعديل: " + form.getEditUrl());\n`;
+      script += `}\n`;
+      
+      const blob = new Blob([script], { type: 'text/plain;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${subject}_${lesson}_GoogleFormScript.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  };
+
+  window.getPrintInstruction = (type) => {
+    if (type === 'mcq') return isArabic ? 'اختر الإجابة الصحيحة:' : 'Choose the correct answer:';
+    if (type === 'classify') return isArabic ? 'صنف العناصر في الجدول المخصص:' : 'Classify the items in the table:';
+    if (type === 'order') return isArabic ? 'رتب الأحداث/الخطوات ترتيباً صحيحاً:' : 'Order the following events/steps correctly:';
+    if (type === 'letters') return isArabic ? 'رتب الأحرف لتكوين الكلمة الصحيحة:' : 'Order the letters to form the correct word:';
+    if (type === 'short') return isArabic ? 'أجب عن السؤال التالي:' : 'Answer the following question:';
+    return isArabic ? 'أجب:' : 'Answer:';
+  };
+
+  const toggleLanguage = () => {
+    const newLang = isArabic ? 'en' : 'ar';
+    setLanguage(newLang);
+    
+    if (newLang === 'en') {
+      setSubject(SUBJECTS_EN[SUBJECTS.indexOf(subject)] || SUBJECTS_EN[0]);
+      setGrade(GRADES_EN[GRADES.indexOf(grade)] || GRADES_EN[0]);
+      setSelectedTypes(prev => prev.map(st => ({
+        ...st, type: QUESTION_TYPES_EN[QUESTION_TYPES.indexOf(st.type)] || QUESTION_TYPES_EN[0]
+      })));
+      setExtraQuestionType(QUESTION_TYPES_EN[QUESTION_TYPES.indexOf(extraQuestionType)] || QUESTION_TYPES_EN[1]);
+    } else {
+      setSubject(SUBJECTS[SUBJECTS_EN.indexOf(subject)] || SUBJECTS[0]);
+      setGrade(GRADES[GRADES_EN.indexOf(grade)] || GRADES[0]);
+      setSelectedTypes(prev => prev.map(st => ({
+        ...st, type: QUESTION_TYPES[QUESTION_TYPES_EN.indexOf(st.type)] || QUESTION_TYPES[0]
+      })));
+      setExtraQuestionType(QUESTION_TYPES[QUESTION_TYPES_EN.indexOf(extraQuestionType)] || QUESTION_TYPES[1]);
+    }
+  };
+
+  const handleDragStart = (e, qId, index) => e.dataTransfer.setData('text/plain', JSON.stringify({ qId, index }));
+  const handleDragOver = (e) => e.preventDefault();
+  const handleDrop = (e, qId, dropIndex) => {
+    e.preventDefault();
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      if (data.qId === qId && data.index !== undefined) {
+        setQuestions(prev => prev.map(q => {
+          if (q.id === qId && q.studentOrder) {
+            const newOrder = [...q.studentOrder];
+            const [draggedItem] = newOrder.splice(data.index, 1);
+            newOrder.splice(dropIndex, 0, draggedItem);
+            return { ...q, studentOrder: newOrder, isSubmitted: false };
+          }
+          return q;
+        }));
+      }
+    } catch (err) {}
+  };
+
+  const handleLetterClick = (qId, i) => {
+     if (swapSelection && swapSelection.qId === qId) {
+         if (swapSelection.index !== i) {
+             setQuestions(prev => prev.map(q => {
+                 if (q.id === qId) {
+                     const newOrder = [...q.studentOrder];
+                     [newOrder[swapSelection.index], newOrder[i]] = [newOrder[i], newOrder[swapSelection.index]];
+                     return { ...q, studentOrder: newOrder, isSubmitted: false };
+                 }
+                 return q;
+             }));
+         }
+         setSwapSelection(null);
+     } else {
+         setSwapSelection({ qId, index: i });
+     }
+  };
+
+  const handleClassifyDragStart = (e, qId, item) => {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'classify', qId, item }));
+    setClassifySelection(null);
+  };
+
+  const handleClassifyDrop = (e, qId, targetCategory) => {
+    e.preventDefault();
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      if (data.type === 'classify' && data.qId === qId) {
+        setQuestions(prev => prev.map(q => {
+          if (q.id === qId) {
+            return { ...q, classifyAnswers: { ...(q.classifyAnswers || {}), [data.item]: targetCategory }, isSubmitted: false };
+          }
+          return q;
+        }));
+      }
+    } catch (err) {}
+  };
+
+  const handleClassifyItemClick = (qId, item) => {
+    if (classifySelection?.qId === qId && classifySelection?.item === item) setClassifySelection(null);
+    else setClassifySelection({ qId, item });
+  };
+
+  const handleClassifyZoneClick = (qId, targetCategory) => {
+    if (classifySelection && classifySelection.qId === qId) {
+      setQuestions(prev => prev.map(q => {
+        if (q.id === qId) {
+          return { ...q, classifyAnswers: { ...(q.classifyAnswers || {}), [classifySelection.item]: targetCategory }, isSubmitted: false };
+        }
+        return q;
+      }));
+      setClassifySelection(null);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const selectedFiles = Array.from(e.target.files);
+    setFileError(null);
+    const processedFiles = [];
+    for (const file of selectedFiles) {
+      try {
+        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          const base64 = await new Promise((resolve) => { reader.onload = () => resolve(reader.result); reader.readAsDataURL(file); });
+          processedFiles.push({ id: Math.random().toString(), type: 'media', mimeType: file.type, data: base64.split(',')[1], name: file.name });
+        } else {
+          const reader = new FileReader();
+          const text = await new Promise((resolve, reject) => { reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsText(file); });
+          processedFiles.push({ id: Math.random().toString(), type: 'text', text: text, name: file.name });
+        }
+      } catch (err) {
+        setFileError(isArabic ? `تعذر قراءة الملف: ${file.name}` : `Could not read file: ${file.name}`);
+      }
+    }
+    setFiles(prev => [...prev, ...processedFiles]);
+    e.target.value = '';
+  };
+
+  const removeFile = (id) => setFiles(files.filter(f => f.id !== id));
+
+  const buildAIPrompt = (isExtra = false, extraType = null) => {
+    const currentQuestionTypes = isArabic ? QUESTION_TYPES : QUESTION_TYPES_EN;
+    const bloomListStr = (isArabic ? BLOOM_LEVELS_AR : BLOOM_LEVELS_EN).join('، ');
+    
+    let typeInstructionsArray = [];
+    let hasReading = false;
+    let totalCount = 0;
+
+    if (isExtra) {
+        const t = extraType;
+        const isMixed = t === currentQuestionTypes[0];
+        const isCategorize = t === "تصنيف في جدول" || t === "Categorize in Table";
+        const isLetters = t === "ترتيب أحرف الكلمة" || t === "Word Letters Order";
+        
+        if (isMixed) typeInstructionsArray.push(isArabic ? `- 1 سؤال متنوع.` : `- 1 mixed question.`);
+        else if (isCategorize) typeInstructionsArray.push(isArabic ? `- 1 سؤال للتصنيف في جدول.` : `- 1 question for categorizing in a table.`);
+        else if (isLetters) typeInstructionsArray.push(isArabic ? `- 1 سؤال ترتيب أحرف.` : `- 1 question of type 'word letters order'.`);
+        else typeInstructionsArray.push(isArabic ? `- 1 سؤال من نوع "${t}".` : `- 1 question of type "${t}".`);
+        totalCount = 1;
+    } else {
+        selectedTypes.forEach(st => {
+          const t = st.type;
+          let c = st.count || 1;
+
+          const isMixed = t === currentQuestionTypes[0];
+          const isCategorize = t === "تصنيف في جدول" || t === "Categorize in Table";
+          const isReading = t === "القراءة والاستيعاب" || t === "Reading Comprehension";
+          const isLetters = t === "ترتيب أحرف الكلمة" || t === "Word Letters Order";
+
+          if (isReading) {
+              hasReading = true;
+              c = readingQuestionsCount;
+              const lengthText = readingLength === 'short' ? 'قصير' : (readingLength === 'long' ? 'طويل وشامل' : 'متوسط الطول');
+              const lengthTextEn = readingLength === 'short' ? 'short' : (readingLength === 'long' ? 'long and comprehensive' : 'medium length');
+              typeInstructionsArray.push(isArabic ? `- ${c} أسئلة بناءً على نص قراءة (${lengthText}).` : `- ${c} questions based on a reading text (${lengthTextEn}).`);
+          } else if (isMixed) {
+              typeInstructionsArray.push(isArabic ? `- ${c} أسئلة متنوعة (خيارات، إجابات قصيرة، وتصنيف إن أمكن).` : `- ${c} mixed questions (mcq, short, categorize if possible).`);
+          } else if (isCategorize) {
+              typeInstructionsArray.push(isArabic ? `- ${c} سؤال/أسئلة للتصنيف في جدول، يتضمن فئات واضحة وعناصر ليقوم الطالب بتصنيفها.` : `- ${c} question(s) for categorizing in a table, including clear categories and items.`);
+          } else if (isLetters) {
+              typeInstructionsArray.push(isArabic ? `- ${c} أسئلة من نوع 'ترتيب أحرف الكلمة' (قدم تلميحاً والكلمة الصحيحة).` : `- ${c} questions of type 'word letters order' (provide hint and word).`);
+          } else {
+              typeInstructionsArray.push(isArabic ? `- ${c} أسئلة من نوع "${t}".` : `- ${c} questions exclusively of type "${t}".`);
+          }
+          totalCount += c;
+        });
+    }
+
+    let typeInstruction = isArabic 
+      ? `أريد توليد إجمالي ${totalCount} سؤال/أسئلة مقسمة كالتالي:\n${typeInstructionsArray.join('\n')}`
+      : `I want to generate a total of ${totalCount} question(s) divided as follows:\n${typeInstructionsArray.join('\n')}`;
+
+    if (hasReading && !isExtra) {
+        const lengthText = readingLength === 'short' ? 'قصير' : (readingLength === 'long' ? 'طويل وشامل' : 'متوسط الطول');
+        const lengthTextEn = readingLength === 'short' ? 'short' : (readingLength === 'long' ? 'long and comprehensive' : 'medium length');
+        typeInstruction = (isArabic ? `أريد توليد نص قراءة واستيعاب (${lengthText}) مناسب للدرس ومستوحى منه.\n` : `I want to generate a reading comprehension text (${lengthTextEn}) suitable for the lesson.\n`) + typeInstruction;
+    }
+
+    let promptText = isArabic 
+      ? `قم بإنشاء ورقة عمل باللغة العربية لمادة "${subject}" لطلاب "${grade}" حول درس "${lesson}". 
+      ${typeInstruction}
+      تعليمات هامة جداً للأنواع الخاصة:
+      - سؤال إجابة قصيرة (short): في حقل answer يجب أن تكتب 20 إجابة صحيحة محتملة وبديلة (على الأقل) مفصولة بـ | لتشمل كافة صياغات الطالب ومترادفاته.
+      - تلميحات متدرجة (hint): اكتب من 2 إلى 3 تلميحات مفصولة بـ | .
+      - سؤال تصنيف (classify): وضع الفئات في مصفوفة 'categories'، والعناصر مبعثرة في 'options'، والإجابة في 'answer' كـ JSON String مثل: {"الفئة1":["عنصر1"], "الفئة2":["عنصر2"]}.
+      - حقل (bloomLevel): **إلزامي**، يجب تحديد مستوى بلوم المعرفي لكل سؤال بناءً على هذه القائمة حصراً (${bloomListStr}).
+      يجب أن تكون الأسئلة متدرجة الصعوبة وتراعي الفروق الفردية.`
+      : `Create a worksheet in English for the subject "${subject}" for "${grade}" students about the lesson "${lesson}".
+      ${typeInstruction}
+      Important instructions:
+      - Short answer (short): In 'answer', you MUST write AT LEAST 20 alternative correct answers/variations separated by | to cover different student phrasings and synonyms.
+      - Hints (hint): Write 2-3 progressive hints separated by |.
+      - Categorize (classify): Categories in 'categories', scrambled items in 'options', answer as JSON String like {"Cat1":["Item1"]}.
+      - (bloomLevel) field: **MANDATORY**, specify Bloom's taxonomy level from this list exclusively (${bloomListStr}).
+      Questions should vary in difficulty.`;
+
+    const textFiles = files.filter(f => f.type === 'text');
+    if (textFiles.length > 0) {
+      promptText += isArabic ? `\n\nاستخدم المعلومات التالية كمصدر:\n` : `\n\nUse the following as source:\n`;
+      textFiles.forEach(f => {
+        promptText += `\n--- محتوى ملف ${f.name} ---\n${f.text}\n--- نهاية المحتوى ---\n`;
+      });
+    }
+
+    return promptText;
+  };
+
+  const processAPIResponse = (jsonText, isExtra = false) => {
+      const parsedQuestions = JSON.parse(jsonText);
+      const bloomOrder = isArabic ? BLOOM_LEVELS_AR : BLOOM_LEVELS_EN;
+
+      const questionsWithState = parsedQuestions.map((q, index) => {
+          let calcMarks = 1;
+          if (q.type === 'classify' || q.type === 'order') {
+              calcMarks = (q.options || []).length * 0.5;
+          } else if (q.type === 'short') {
+              calcMarks = 2;
+          }
+
+          let safeBloom = q.bloomLevel || (isArabic ? 'الفهم' : 'Understanding');
+          if (!bloomOrder.includes(safeBloom)) {
+             const lowerSafe = safeBloom.toLowerCase();
+             const found = bloomOrder.find(b => b.toLowerCase() === lowerSafe);
+             if(found) safeBloom = found; else safeBloom = isArabic ? 'الفهم' : 'Understanding';
+          }
+
+          return {
+            ...q,
+            id: Date.now() + index + Math.random(),
+            marks: calcMarks,
+            bloomLevel: safeBloom,
+            imageUrl: null,
+            imageAUrl: null,
+            isGeneratingImage: false,
+            imageError: null,
+            isEditing: false,
+            userAnswer: '',
+            isSubmitted: false,
+            isCorrect: null,
+            mistakeCount: 0,
+            studentOrder: q.type === 'order' ? [...(q.options || [])] : (q.type === 'letters' ? (q.answer||'').split('').sort(() => Math.random() - 0.5) : null),
+            classifyAnswers: q.type === 'classify' ? (q.options || []).reduce((acc, item) => ({...acc, [item]: ''}), {}) : null
+          };
+      });
+
+      if (isExtra) {
+          setQuestions(prev => [...prev, ...questionsWithState]);
+      } else {
+          const sortedQuestions = questionsWithState.sort((a, b) => {
+              const idxA = bloomOrder.indexOf(a.bloomLevel);
+              const idxB = bloomOrder.indexOf(b.bloomLevel);
+              return (idxA !== -1 ? idxA : 99) - (idxB !== -1 ? idxB : 99);
+          });
+          setQuestions(sortedQuestions);
+      }
+  };
+
+  const executeAPI = async (promptText, isExtra = false) => {
+    const requestParts = [{ text: promptText }];
+    const mediaFiles = files.filter(f => f.type === 'media');
+    mediaFiles.forEach(f => {
+      requestParts.push({ inlineData: { mimeType: f.mimeType, data: f.data } });
+    });
+
+    const payload = {
+      contents: [{ role: "user", parts: requestParts }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              text: { type: "STRING" },
+              readingText: { type: "STRING" },
+              type: { type: "STRING", description: "'mcq', 'short', 'reading', 'order', 'classify', 'letters'" },
+              options: { type: "ARRAY", items: { type: "STRING" } },
+              categories: { type: "ARRAY", items: { type: "STRING" } },
+              answer: { type: "STRING" },
+              hint: { type: "STRING" },
+              explanation: { type: "STRING" },
+              bloomLevel: { type: "STRING" }
+            },
+            required: ["text", "type", "answer", "hint", "explanation", "bloomLevel"]
+          }
+        }
+      }
+    };
+
+    const apiKey = ""; // Use valid API key
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+    
+    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!response.ok) throw new Error(isArabic ? 'فشل في الاتصال بخادم الذكاء الاصطناعي.' : 'Failed to connect to AI server.');
+
+    const result = await response.json();
+    const jsonText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (jsonText) {
+      processAPIResponse(jsonText, isExtra);
+    } else {
+      throw new Error(isArabic ? 'لم يتم إرجاع استجابة صالحة.' : 'No valid response returned.');
+    }
+  };
+
+  const generateWorksheet = async (e) => {
+    e.preventDefault();
+    if (!subject || !lesson) {
+      setError(isArabic ? 'يرجى إدخال اسم المادة واسم الدرس.' : 'Please enter the subject and lesson name.');
+      return;
+    }
+    setIsGeneratingSheet(true); setError(null); setQuestions([]);
+    try {
+      const promptText = buildAIPrompt(false);
+      await executeAPI(promptText, false);
+    } catch (err) {
+      setError((isArabic ? 'حدث خطأ: ' : 'Error: ') + err.message);
+    } finally {
+      setIsGeneratingSheet(false);
+    }
+  };
+
+  const generateExtraQuestion = async () => {
+      setIsGeneratingExtra(true); setError(null);
+      try {
+          const promptText = buildAIPrompt(true, extraQuestionType);
+          await executeAPI(promptText, true);
+      } catch (err) {
+          setError((isArabic ? 'حدث خطأ أثناء التوليد الإضافي: ' : 'Error generating extra: ') + err.message);
+      } finally {
+          setIsGeneratingExtra(false);
+      }
+  };
+
+  const playSound = (isCorrect) => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      
+      const playNote = (freq, startTime, duration, type) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + startTime);
+        gain.gain.setValueAtTime(0, ctx.currentTime + startTime);
+        gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + startTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startTime + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + startTime);
+        osc.stop(ctx.currentTime + startTime + duration);
+      };
+
+      if (isCorrect) {
+        playNote(523.25, 0, 0.3, 'sine');    
+        playNote(659.25, 0.1, 0.3, 'sine');  
+        playNote(783.99, 0.2, 0.4, 'sine');  
+        playNote(1046.50, 0.3, 0.6, 'sine'); 
+      } else {
+        playNote(311.13, 0, 0.3, 'triangle');    
+        playNote(261.63, 0.15, 0.4, 'triangle'); 
+      }
+    } catch (e) {}
+  };
+
+  const checkStudentAnswer = (questionId) => {
+    const q = questions.find(item => item.id === questionId);
+    if (!q) return;
+
+    let isCorrect = false;
+    
+    if (q.type === 'mcq') {
+      isCorrect = q.userAnswer === q.answer;
+    } else if (q.type === 'order' || q.type === 'letters') {
+      const clean = (str) => (str || '').replace(/[^a-zA-Z\u0600-\u06FF0-9]/g, '');
+      const studentStr = clean((q.studentOrder || []).join(''));
+      const correctStr = clean(q.answer);
+      isCorrect = studentStr === correctStr;
+    } else if (q.type === 'classify') {
+        try {
+            const ansMap = JSON.parse(q.answer);
+            let ok = true;
+            for (const item of (q.options || [])) {
+                const selCat = (q.classifyAnswers || {})[item];
+                const correctCat = Object.keys(ansMap).find(c => (ansMap[c]||[]).includes(item));
+                if (selCat !== correctCat) { ok = false; break; }
+            }
+            isCorrect = ok;
+        } catch(e) { isCorrect = false; }
+    } else {
+      const normalizedUserAnswer = (q.userAnswer || "").trim().toLowerCase().replace(/[.,!?؟،:؛]/g, '');
+      const validAnswers = (q.answer || "").split('|').map(s => s.trim().toLowerCase().replace(/[.,!?؟،:؛]/g, ''));
+      
+      const checkAdvancedSimilarity = (userStr, correctStr) => {
+         const stopWords = new Set(['في', 'من', 'على', 'إلى', 'عن', 'ب', 'ل', 'ك', 'و', 'أو', 'ثم', 'هو', 'هي', 'هم', 'هن', 'هذا', 'هذه', 'أن', 'إن', 'كان', 'يكون', 'is', 'are', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or', 'but']);
+         
+         const userWords = userStr.split(/\s+/).filter(w => w.length > 0);
+         const correctWords = correctStr.split(/\s+/).filter(w => w.length > 0);
+
+         const sigUserWords = userWords.filter(w => !stopWords.has(w) && w.length > 1);
+         const sigCorrectWords = correctWords.filter(w => !stopWords.has(w) && w.length > 1);
+         
+         if (sigCorrectWords.length === 0) {
+             return userStr === correctStr || userStr.includes(correctStr);
+         }
+
+         const setCorrect = new Set(sigCorrectWords);
+         const setIntersection = new Set([...sigUserWords].filter(x => setCorrect.has(x)));
+         
+         const matchPercentage = setIntersection.size / setCorrect.size;
+         return matchPercentage >= 0.50;
+      };
+
+      isCorrect = normalizedUserAnswer.length > 0 && validAnswers.some(ans => checkAdvancedSimilarity(normalizedUserAnswer, ans));
+    }
+    
+    playSound(isCorrect);
+
+    setQuestions(prev => prev.map(item => {
+      if (item.id === questionId) {
+        const newMistakeCount = isCorrect ? item.mistakeCount : (item.mistakeCount || 0) + 1;
+        return { ...item, isSubmitted: true, isCorrect, mistakeCount: newMistakeCount };
+      }
+      return item;
+    }));
+  };
+
+  const handleStudentAnswer = (questionId, answer) => setQuestions(prev => prev.map(q => q.id === questionId ? { ...q, userAnswer: answer, isSubmitted: false } : q));
+  const deleteQuestion = (id) => setQuestions(prev => prev.filter(q => q.id !== id));
+  const addManualQuestion = () => setQuestions(prev => [...prev, { id: Date.now(), text: isArabic ? 'سؤال جديد...' : 'New Question...', type: 'short', answer: '', hint: '', explanation: '', isEditing: true, userAnswer: '', isSubmitted: false, isCorrect: null, mistakeCount: 0, marks: 1, bloomLevel: null }]);
+  const handleQuestionEdit = (id, field, value) => setQuestions(prev => prev.map(q => q.id === id ? { ...q, [field]: value } : q));
+  const saveEditedQuestion = (id) => setQuestions(prev => prev.map(q => q.id === id ? { ...q, isEditing: false } : q));
+
+  const generateImageForQuestion = async (questionId, questionText, qAnswer, qType, target = 'both') => {
+    setQuestions(prev => prev.map(q => q.id === questionId ? { ...q, isGeneratingImage: true, imageError: null } : q));
+    const promptQ = isArabic 
+      ? `صورة تعليمية مبسطة بالأسلوب الكرتوني تعبر عن سياق هذا السؤال: "${questionText}". تحذير هام جداً: لا تقم أبداً بكتابة أو إظهار الإجابة الصحيحة أو الأرقام الحل داخل هذه الصورة. هذه الصورة مخصصة فقط لطرح السياق العام للسؤال. اجعلها مناسبة للأطفال.`
+      : `A simple educational cartoon-style illustration showing the context of this question: "${questionText}". VERY IMPORTANT WARNING: DO NOT write or show the correct answer or solution inside this image under any circumstances. This image is only to pose the general context. Make it suitable for children.`;
+    let promptA = isArabic
+      ? `صورة تعليمية تعمل كتلميح بصري (Visual Hint) لمساعدة الطالب في استنتاج إجابة هذا السؤال: "${questionText}". الإجابة هي: "${qAnswer}". تحذير: لا تقم بكتابة الإجابة النصية المباشرة داخل الصورة، بل ارسم تلميحاً يدل عليها.`
+      : `Educational illustration acting as a visual hint to help the student infer the answer for: "${questionText}". Answer: "${qAnswer}". WARNING: Do not write the direct text answer in the image, draw a visual hint instead.`;
+
+    const payloadQ = { contents: [{ role: "user", parts: [{ text: promptQ }] }] };
+    const payloadA = { contents: [{ role: "user", parts: [{ text: promptA }] }] };
+
+    try {
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${apiKey}`;
+      let imageUrl = null; let imageAUrl = null;
+      const requests = [];
+
+      if (target === 'both' || target === 'question') {
+        requests.push(
+          fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadQ) })
+            .then(res => { if (!res.ok) throw new Error('Failed to connect to image server.'); return res.json(); })
+            .then(resultQ => {
+               const candQ = resultQ?.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+               if (candQ) imageUrl = `data:${candQ.inlineData.mimeType};base64,${candQ.inlineData.data}`;
+            })
+        );
+      }
+
+      if (target === 'both' || target === 'hint') {
+        requests.push(
+          fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadA) })
+            .then(res => { if (!res.ok) throw new Error('Failed to connect to image server.'); return res.json(); })
+            .then(resultA => {
+               const candA = resultA?.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+               if (candA) imageAUrl = `data:${candA.inlineData.mimeType};base64,${candA.inlineData.data}`;
+            })
+        );
+      }
+      await Promise.all(requests);
+      setQuestions(prev => prev.map(q => {
+        if (q.id === questionId) {
+          const newQ = { ...q, isGeneratingImage: false };
+          if (target === 'both' || target === 'question') newQ.imageUrl = imageUrl || q.imageUrl;
+          if (target === 'both' || target === 'hint') newQ.imageAUrl = imageAUrl || q.imageAUrl;
+          return newQ;
+        }
+        return q;
+      }));
+    } catch (err) {
+      setQuestions(prev => prev.map(q => q.id === questionId ? { ...q, isGeneratingImage: false, imageError: err.message } : q));
+    }
+  };
+
+  const moveOrder = (questionId, currentIndex, direction) => {
+    setQuestions(prev => prev.map(q => {
+      if (q.id === questionId && q.studentOrder) {
+        const newOrder = [...q.studentOrder];
+        const swapIndex = currentIndex + direction;
+        if (swapIndex >= 0 && swapIndex < newOrder.length) {
+          [newOrder[currentIndex], newOrder[swapIndex]] = [newOrder[swapIndex], newOrder[currentIndex]];
+          return { ...q, studentOrder: newOrder, isSubmitted: false };
+        }
+      }
+      return q;
+    }));
+  };
+
+  const handleExportPDF = () => {
+    setShowPrintModal(false);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert(isArabic ? 'يرجى السماح بالنوافذ المنبثقة (Pop-ups) لهذا الموقع لطباعة ورقة العمل.' : 'Please allow pop-ups for this site to print the worksheet.');
+      return;
+    }
+
+    let renderedPrintReadings = new Set();
+    let currentPrintType = null;
+
+    const printContent = questions.map((q, index) => {
+      const showReading = q.readingText && !renderedPrintReadings.has(q.readingText);
+      if (showReading) renderedPrintReadings.add(q.readingText);
+      const readingHTML = showReading ? `<div class="bg-gray-100 p-4 rounded-xl border-2 border-gray-300 mb-6 w-full break-inside-avoid"><h3 class="font-bold text-gray-800 mb-2">${isArabic ? 'اقرأ النص التالي ثم أجب:' : 'Read the following text and answer:'}</h3><p class="text-base leading-relaxed text-justify">${q.readingText}</p></div>` : '';
+
+      const isSameTypeAsPrevious = q.type === currentPrintType;
+      currentPrintType = q.type;
+      const currentInstruction = isSameTypeAsPrevious ? null : window.getPrintInstruction(q.type);
+      const instructionHTML = currentInstruction ? `<span class="text-sm font-bold text-gray-500 mb-3 block pb-1 border-b border-gray-300 w-max">${currentInstruction}</span>` : '';
+      const marksDisplay = docSettings.type === 'exam' ? `<div class="border-2 border-gray-400 rounded-lg px-2 py-0.5 flex items-center justify-center bg-gray-50 text-xs font-black whitespace-nowrap shadow-sm h-min ml-2 ${isArabic?'mr-2 ml-0':''}">${q.marks || 1} ${isArabic ? 'درجة' : 'M'}</div>` : '';
+      
+      const bloomBadge = (q.bloomLevel && printTarget === 'teacher') ? `<span class="inline-block bg-gray-200 text-gray-800 text-[10px] font-bold px-2 py-0.5 rounded border border-gray-400 mb-1">${q.bloomLevel}</span>` : '';
+
+      let questionContentHTML = '';
+
+      if (q.type === 'mcq') {
+        const opts = q.options.map(opt => {
+          const isCorrect = opt === q.answer;
+          const bg = (printTarget === 'teacher' && isCorrect) ? 'bg-gray-200 border-gray-800 font-bold' : 'bg-white border-gray-300';
+          return `<div class="flex items-center gap-3 p-3 rounded-xl border-2 ${bg} break-inside-avoid" style="display: table-cell; border-radius: 8px; border: 2px solid ${printTarget === 'teacher' && isCorrect ? '#1f2937' : '#d1d5db'}; padding: 12px; background-color: ${printTarget === 'teacher' && isCorrect ? '#e5e7eb' : 'white'};">
+            <div style="width: 20px; height: 20px; border-radius: 50%; border: 2px solid #9ca3af; display: inline-block; vertical-align: middle; background-color: ${printTarget === 'teacher' && isCorrect ? '#1f2937' : 'transparent'};"></div>
+            <span style="display: inline-block; vertical-align: middle; margin-left: 8px; margin-right: 8px; font-weight: ${printTarget === 'teacher' && isCorrect ? 'bold' : 'normal'}">${opt}</span>
+          </div>`;
+        }).join('');
+        questionContentHTML = `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; width: 100%;">${opts}</div>`;
+      } 
+      else if (q.type === 'short') {
+        if (printTarget === 'teacher') {
+          questionContentHTML = `<div class="mt-4 p-4 rounded-xl border-2 border-gray-800 bg-gray-100 text-gray-900 font-bold w-full">${q.answer.replace(/\|/g, ' أو ')}</div>`;
+        } else {
+          questionContentHTML = `<div class="mt-4 flex flex-col gap-8 py-4 w-full"><div class="border-b-2 border-dashed border-gray-400 w-full"></div><div class="border-b-2 border-dashed border-gray-400 w-full"></div></div>`;
+        }
+      }
+      else if (q.type === 'classify') {
+         const categories = q.categories || [];
+         let ansMap = {}; try { ansMap = JSON.parse(q.answer); } catch(e){}
+         
+         const tableHTML = `<div class="mt-6 border-2 border-gray-800 rounded-xl overflow-hidden w-full break-inside-avoid shadow-sm">
+             ${printTarget === 'teacher' ? '' : `<div class="bg-gray-100 p-4 border-b-2 border-gray-800"><p class="font-bold text-center mb-3 text-gray-600">${isArabic ? 'العناصر المتاحة:' : 'Available Items:'}</p><div class="flex flex-wrap justify-center gap-3">${(q.options||[]).map(o => `<span class="px-4 py-1.5 border-2 border-gray-400 bg-white rounded-lg font-bold text-gray-800 shadow-sm inline-block">${o}</span>`).join('')}</div></div>`}
+             <div style="display: table; width: 100%; table-layout: fixed;">
+                 <div style="display: table-row;">
+                     ${categories.map((cat, ci) => `
+                         <div style="display: table-cell; border-right: ${ci !== categories.length - 1 && !isArabic ? '2px solid #1f2937' : 'none'}; border-left: ${ci !== categories.length - 1 && isArabic ? '2px solid #1f2937' : 'none'}; vertical-align: top;">
+                             <div class="bg-gray-200 p-3 text-center font-black border-b-2 border-gray-800">${cat}</div>
+                             <div class="p-4 min-h-[150px] flex flex-col gap-3 bg-white" style="min-height: 150px;">
+                                 ${printTarget === 'teacher' ? 
+                                     (ansMap[cat]||[]).map(item => `<div class="px-4 py-2 bg-gray-100 border-2 border-gray-400 rounded-lg text-center font-bold text-gray-800 shadow-sm mb-2">${item}</div>`).join('') 
+                                     : ''}
+                             </div>
+                         </div>
+                     `).join('')}
+                 </div>
+             </div>
+         </div>`;
+         questionContentHTML = tableHTML;
+      }
+      else if (q.type === 'order') {
+        if (printTarget === 'teacher') {
+          const orderedItems = q.answer.split(/(?=[A-Za-z\u0600-\u06FF0-9])/).filter(Boolean);
+          questionContentHTML = `<div class="mt-4 space-y-2 w-full">${orderedItems.map((item, i) => `<div class="flex gap-3 p-3 rounded-lg border-2 border-gray-400 bg-gray-100 font-bold mb-2"><span class="w-6 h-6 rounded-full bg-gray-300 text-gray-800 flex items-center justify-center flex-shrink-0" style="display:inline-block; width:24px; height:24px; text-align:center; border-radius:50%; background:#d1d5db; margin-${isArabic?'left':'right'}:12px;">${i+1}</span>${item}</div>`).join('')}</div>`;
+        } else {
+          questionContentHTML = `<div class="mt-4 flex flex-wrap gap-3 w-full">${(q.options||[]).map(opt => `<div class="p-3 rounded-lg border-2 border-gray-300 bg-gray-50 font-medium inline-block mb-2 mr-2">${opt}</div>`).join('')}</div><div class="mt-6 flex flex-col gap-6 w-full">${(q.options||[]).map((_,i) => `<div class="flex items-center gap-3 mb-4" style="display:flex; align-items:center;"><div class="w-8 h-8 rounded-full border-2 border-gray-400 flex items-center justify-center font-bold text-gray-500" style="width:32px; height:32px; display:flex; align-items:center; justify-content:center; border:2px solid #9ca3af; border-radius:50%;">${i+1}</div><div class="border-b-2 border-dashed border-gray-400 flex-1" style="flex:1; border-bottom:2px dashed #9ca3af; margin-${isArabic?'right':'left'}:12px;"></div></div>`).join('')}</div>`;
+        }
+      }
+      else if (q.type === 'letters') {
+         if (printTarget === 'teacher') {
+             questionContentHTML = `<div class="mt-4 px-8 py-4 bg-gray-100 border-4 border-gray-400 rounded-2xl text-center text-4xl font-black tracking-widest text-gray-800 w-max mx-auto shadow-sm">${q.answer}</div>`;
+         } else {
+             questionContentHTML = `<div class="mt-4 flex flex-col items-center gap-6 w-full"><div class="flex gap-3 justify-center" style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">${(q.options||q.answer.split('').sort(()=>Math.random()-0.5)).map(l => `<div class="w-14 h-16 border-4 border-gray-300 bg-gray-100 rounded-xl flex items-center justify-center text-3xl font-bold" style="width:56px; height:64px; border:4px solid #d1d5db; background:#f3f4f6; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:bold;">${l}</div>`).join('')}</div><div class="flex gap-2 justify-center mt-4" style="display:flex; justify-content:center; gap:8px;">${q.answer.split('').map(() => `<div class="w-14 h-16 border-b-4 border-gray-800" style="width:56px; border-bottom:4px solid #1f2937;"></div>`).join('')}</div></div>`;
+         }
+      }
+
+      const imgHTML = q.imageUrl ? `<div style="display: table-cell; width: 33.33%; max-width: 300px; padding-${isArabic?'right':'left'}: 24px; vertical-align: top;"><img src="${q.imageUrl}" style="width: 100%; height: auto; max-height: 256px; object-fit: contain; border-radius: 12px; border: 2px solid #e5e7eb; padding: 8px; background: white;" /></div>` : '';
+
+      return `
+        ${readingHTML}
+        <div class="mb-8 break-inside-avoid">
+           ${bloomBadge}
+           ${instructionHTML}
+           <div style="display: table; width: 100%;">
+              <div style="display: table-row;">
+                  <div style="display: table-cell; vertical-align: top; width: ${q.imageUrl ? '66.66%' : '100%'};">
+                     <div style="display: flex; align-items: flex-start;">
+                        <span style="width: 32px; height: 32px; border-radius: 50%; border: 2px solid black; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 16px; background: #f3f4f6; flex-shrink: 0; margin-${isArabic?'left':'right'}: 16px;">${index + 1}</span>
+                        <div style="flex: 1; width: 100%;">
+                           <h3 style="font-size: 18px; font-weight: bold; line-height: 1.6; margin-bottom: 8px; margin-top: 4px;">${q.text}</h3>
+                           ${questionContentHTML}
+                        </div>
+                     </div>
+                  </div>
+                  ${q.imageUrl ? imgHTML : ''}
+                  ${docSettings.type === 'exam' ? `<div style="display: table-cell; vertical-align: top; width: 60px; padding-${isArabic?'right':'left'}: 16px;">${marksDisplay}</div>` : ''}
+              </div>
+           </div>
+        </div>
+      `;
+    }).join('<div style="width: 100%; height: 1px; background-color: #d1d5db; margin: 32px 0;"></div>');
+
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
+    <head>
+      <meta charset="UTF-8">
+      <title>${subject} - ${lesson}</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+      <style>
+        body { font-family: 'Cairo', sans-serif; background: white; color: black; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        @page { size: A4; margin: 15mm; }
+        .break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
+      </style>
+    </head>
+    <body class="p-4 max-w-[210mm] mx-auto">
+      <div class="border-b-4 border-gray-800 pb-3 mb-6">
+        <div style="display: table; width: 100%; text-align: ${isArabic?'right':'left'}; font-size: 12px;">
+           <div style="display: table-row;">
+               <div style="display: table-cell; width: 33.33%; font-weight: bold; vertical-align: top; line-height: 1.8;">
+                   <p style="font-size: 14px; font-weight: 900; margin-bottom: 4px;">${isArabic ? 'مجمع زايد التعليمي - الظيت' : 'Zayed Educational Complex - Al Dhait'}</p>
+                   <p>${isArabic ? 'المادة:' : 'Subject:'} ${subject}</p>
+                   <p>${grade}</p>
+                   ${teacherName ? `<p>${isArabic ? 'المعلم:' : 'Teacher:'} ${teacherName}</p>` : ''}
+               </div>
+               <div style="display: table-cell; width: 33.33%; text-align: center; vertical-align: top;">
+                   <h1 style="font-size: 18px; font-weight: 900; background: #f3f4f6; padding: 4px 16px; border-radius: 8px; border: 2px solid #1f2937; display: inline-block;">${docSettings.type === 'exam' ? (isArabic ? 'اختبار' : 'Exam') : (isArabic ? 'ورقة عمل' : 'Worksheet')}</h1>
+                   <div style="margin-top: 8px; border: 2px solid #1f2937; padding: 4px; border-radius: 8px; background: #f9fafb;"><h2 style="font-size: 14px; font-weight: bold;">${lesson}</h2></div>
+               </div>
+               <div style="display: table-cell; width: 33.33%; vertical-align: top; font-weight: bold; text-align: ${isArabic?'left':'right'};">
+                   <div style="display: inline-block; text-align: ${isArabic?'right':'left'}; width: 100%; max-width: 200px;">
+                       <div style="display: flex; border-bottom: 2px dashed #9ca3af; margin-bottom: 12px; padding-bottom: 4px;"><span style="width: 48px;">${isArabic ? 'الاسم:' : 'Name:'}</span></div>
+                       <div style="display: flex; border-bottom: 2px dashed #9ca3af; margin-bottom: 12px; padding-bottom: 4px;"><span style="width: 48px;">${isArabic ? 'التاريخ:' : 'Date:'}</span></div>
+                       ${docSettings.type === 'exam' ? `
+                          <div style="display: flex; gap: 8px; margin-top: 8px;">
+                              <div style="flex: 1; text-align: center; color: #4b5563; background: #f9fafb; border: 1px solid #d1d5db; border-radius: 4px; padding: 4px;">
+                                 ${isArabic ? 'المدة:' : 'Time:'} ${docSettings.time} ${isArabic ? 'د' : 'm'}
+                              </div>
+                              <div style="flex: 1; display: flex; justify-content: center; align-items: center; background: #f3f4f6; padding: 4px; border-radius: 4px; border: 1px solid #1f2937;">
+                                  <span>${isArabic ? 'الدرجة:' : 'Marks:'} </span>
+                                  <span style="font-weight: 900; margin-left: 4px; font-size: 14px;"> / ${docSettings.marks || totalMarks}</span>
+                              </div>
+                          </div>
+                       ` : ''}
+                   </div>
+               </div>
+           </div>
+        </div>
+        ${printTarget === 'teacher' ? `<div class="bg-gray-200 text-gray-800 text-center font-black py-1.5 mt-3 rounded-lg border-2 border-gray-500 uppercase tracking-widest">${isArabic ? 'نموذج إجابة المعلم' : 'Teacher Answer Key'}</div>` : ''}
+      </div>
+      
+      <div class="space-y-8">
+        ${printContent}
+      </div>
+      <script>
+        window.onload = () => { window.print(); window.onafterprint = () => window.close(); };
+      </script>
+    </body>
+    </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
+  const generateStandaloneHTML = () => {
+    const safeQuestions = JSON.stringify(questions.map(q => ({
+      ...q, isSubmitted: false, isCorrect: null, userAnswer: '', mistakeCount: 0,
+      studentOrder: q.type === 'order' ? [...(q.options||[])] : (q.type === 'letters' ? (q.answer||'').split('').sort(() => Math.random() - 0.5) : null),
+      classifyAnswers: q.type === 'classify' ? (q.options||[]).reduce((acc, item) => ({...acc, [item]: ''}), {}) : null,
+      bloomLevel: null // Hide Bloom from student
+    }))).replace(/</g, '\\u003c');
+
+    const currentTotalMarks = questions.reduce((sum, q) => sum + (parseFloat(q.marks) || 1), 0);
+    const safeConfig = JSON.stringify({ subject, lesson, grade, teacherName, totalMarks: currentTotalMarks, isArabic, schoolManager: 'م.عمر الشعر' }).replace(/</g, '\\u003c');
+
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html dir="${isArabic ? 'rtl' : 'ltr'}" lang="${isArabic ? 'ar' : 'en'}">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${isArabic ? 'ورقة عمل تفاعلية' : 'Interactive Worksheet'}</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+      <style> body { font-family: 'Cairo', sans-serif; background: #f8fafc; } @media print { .no-print { display: none !important; } body { background: white; } } </style>
+      <script> window.initialQuestions = ${safeQuestions}; window.config = ${safeConfig}; 
+      window.getPrintInstruction = (type) => {
+          if (type === 'mcq') return window.config.isArabic ? 'اختر الإجابة الصحيحة:' : 'Choose the correct answer:';
+          if (type === 'classify') return window.config.isArabic ? 'صنف العناصر في الجدول المخصص:' : 'Classify the items in the table:';
+          if (type === 'order') return window.config.isArabic ? 'رتب الأحداث/الخطوات ترتيباً صحيحاً:' : 'Order the following events/steps correctly:';
+          if (type === 'letters') return window.config.isArabic ? 'رتب الأحرف لتكوين الكلمة الصحيحة:' : 'Order the letters to form the correct word:';
+          if (type === 'short') return window.config.isArabic ? 'أجب عن السؤال التالي:' : 'Answer the following question:';
+          return window.config.isArabic ? 'أجب:' : 'Answer:';
+        };
+      </script>
+      <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+      <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+      <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    </head>
+    <body>
+      <div id="root"></div>
+      <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+          const [studentName, setStudentName] = useState('');
+          const [hasStarted, setHasStarted] = useState(false);
+          const [questions, setQuestions] = useState(window.initialQuestions);
+          const [showCert, setShowCert] = useState(false);
+          const [swapSelection, setSwapSelection] = useState(null);
+          const [classifySelection, setClassifySelection] = useState(null);
+          const [enlargedImage, setEnlargedImage] = useState(null);
+
+          const handleDragStart = (e, qId, index) => e.dataTransfer.setData('text/plain', JSON.stringify({ qId, index }));
+          const handleDrop = (e, qId, dropIndex) => {
+            e.preventDefault();
+            try {
+              const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+              if (data.qId === qId && data.index !== undefined) {
+                setQuestions(prev => prev.map(item => {
+                  if (item.id === qId) {
+                    const newOrder = [...item.studentOrder];
+                    const [draggedItem] = newOrder.splice(data.index, 1);
+                    newOrder.splice(dropIndex, 0, draggedItem);
+                    return {...item, studentOrder: newOrder, isSubmitted: false};
+                  }
+                  return item;
+                }));
+              }
+            } catch (err) {}
+          };
+
+          const handleLetterClick = (qId, i) => {
+             if (swapSelection && swapSelection.qId === qId) {
+                 if (swapSelection.index !== i) {
+                     setQuestions(prev => prev.map(q => {
+                         if (q.id === qId) {
+                             const newOrder = [...q.studentOrder];
+                             [newOrder[swapSelection.index], newOrder[i]] = [newOrder[i], newOrder[swapSelection.index]];
+                             return { ...q, studentOrder: newOrder, isSubmitted: false };
+                         }
+                         return q;
+                     }));
+                 }
+                 setSwapSelection(null);
+             } else {
+                 setSwapSelection({ qId, index: i });
+             }
+          };
+
+          const handleClassifyDragStart = (e, qId, item) => {
+             e.dataTransfer.setData('text/plain', JSON.stringify({ type: 'classify', qId, item }));
+             setClassifySelection(null);
+          };
+
+          const handleClassifyItemClick = (qId, item) => {
+             if (classifySelection?.qId === qId && classifySelection?.item === item) {
+                setClassifySelection(null);
+             } else {
+                setClassifySelection({ qId, item });
+             }
+          };
+
+          const playSound = (isCorrect) => {
+             try {
+                 const AudioContext = window.AudioContext || window.webkitAudioContext;
+                 if (!AudioContext) return;
+                 const ctx = new AudioContext();
+                 
+                 const playNote = (freq, startTime, duration, type) => {
+                     const osc = ctx.createOscillator();
+                     const gain = ctx.createGain();
+                     osc.type = type;
+                     osc.frequency.setValueAtTime(freq, ctx.currentTime + startTime);
+                     gain.gain.setValueAtTime(0, ctx.currentTime + startTime);
+                     gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + startTime + 0.05);
+                     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startTime + duration);
+                     osc.connect(gain);
+                     gain.connect(ctx.destination);
+                     osc.start(ctx.currentTime + startTime);
+                     osc.stop(ctx.currentTime + startTime + duration);
+                 };
+
+                 if (isCorrect) {
+                     playNote(523.25, 0, 0.3, 'sine');
+                     playNote(659.25, 0.1, 0.3, 'sine');
+                     playNote(783.99, 0.2, 0.4, 'sine');
+                     playNote(1046.50, 0.3, 0.6, 'sine');
+                 } else {
+                     playNote(311.13, 0, 0.3, 'triangle');
+                     playNote(261.63, 0.15, 0.4, 'triangle');
+                 }
+             } catch (e) {}
+          };
+
+          const checkAnswer = (id) => {
+            const q = questions.find(item => item.id === id);
+            if (!q) return;
+
+            let isCorrect = false;
+            if (q.type === 'mcq') isCorrect = q.userAnswer === q.answer;
+                else if (q.type === 'order' || q.type === 'letters') {
+                  const clean = s => (s||'').replace(/[^a-zA-Z\\u0600-\\u06FF0-9]/g, '');
+                  isCorrect = clean((q.studentOrder||[]).join('')) === clean(q.answer);
+                } else if (q.type === 'classify') {
+                  try {
+                    const ansMap = JSON.parse(q.answer);
+                    let ok = true;
+                    for (const item of (q.options || [])) {
+                      const selCat = (q.classifyAnswers||{})[item];
+                      const correctCat = Object.keys(ansMap).find(c => (ansMap[c]||[]).includes(item));
+                      if (selCat !== correctCat) { ok = false; break; }
+                    }
+                    isCorrect = ok;
+                  } catch(e) { isCorrect = false; }
+                } else {
+                   const uAns = (q.userAnswer||'').trim().toLowerCase().replace(/[.,!?؟،:؛]/g, '');
+                   const vAns = (q.answer||'').split('|').map(s=>s.trim().toLowerCase().replace(/[.,!?؟،:؛]/g, ''));
+                   
+                   const checkAdvancedSimilarity = (userStr, correctStr) => {
+                      const stopWords = new Set(['في', 'من', 'على', 'إلى', 'عن', 'ب', 'ل', 'ك', 'و', 'أو', 'ثم', 'هو', 'هي', 'هم', 'هن', 'هذا', 'هذه', 'أن', 'إن', 'كان', 'يكون', 'is', 'are', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or', 'but']);
+                      
+                      const userWords = userStr.split(/\s+/).filter(w => w.length > 0);
+                      const correctWords = correctStr.split(/\s+/).filter(w => w.length > 0);
+
+                      const sigUserWords = userWords.filter(w => !stopWords.has(w) && w.length > 1);
+                      const sigCorrectWords = correctWords.filter(w => !stopWords.has(w) && w.length > 1);
+                      
+                      if (sigCorrectWords.length === 0) {
+                          return userStr === correctStr || userStr.includes(correctStr);
+                      }
+
+                      const setCorrect = new Set(sigCorrectWords);
+                      const setIntersection = new Set([...sigUserWords].filter(x => setCorrect.has(x)));
+                      
+                      return (setIntersection.size / setCorrect.size) >= 0.50;
+                   };
+
+                   isCorrect = uAns.length > 0 && vAns.some(a=>checkAdvancedSimilarity(uAns, a));
+                }
+                
+                playSound(isCorrect);
+
+                setQuestions(prev => prev.map(item => {
+                  if (item.id === id) {
+                    const newMistakeCount = isCorrect ? item.mistakeCount : (item.mistakeCount || 0) + 1;
+                    return { ...item, isSubmitted: true, isCorrect, mistakeCount: newMistakeCount };
+                  }
+                  return item;
+                }));
+          };
+
+          const allCorrect = questions.length > 0 && questions.every(q => q.isSubmitted && q.isCorrect);
+
+          if (!hasStarted) {
+            return (
+              <div className="min-h-screen flex items-center justify-center p-4 bg-blue-50/50">
+                <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center space-y-6">
+                  <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto text-4xl">📝</div>
+                  <h1 className="text-3xl font-bold text-slate-800">{window.config.isArabic ? 'ورقة عمل تفاعلية' : 'Interactive Worksheet'}</h1>
+                  <p className="text-slate-500 font-medium">{window.config.subject} - {window.config.lesson}</p>
+                  <div className="space-y-2 text-right">
+                    <label className="block font-bold text-slate-700">{window.config.isArabic ? 'اسم الطالب (ثلاثي):' : 'Student Name:'}</label>
+                    <input type="text" value={studentName} onChange={e=>setStudentName(e.target.value)} className="w-full p-4 border-2 border-blue-200 rounded-xl outline-none text-lg text-center font-bold" placeholder={window.config.isArabic ? "اكتب اسمك هنا..." : "Type your name..."} />
+                  </div>
+                  <button onClick={() => studentName.trim() && setHasStarted(true)} disabled={!studentName.trim()} className="w-full bg-blue-600 text-white font-bold text-xl py-4 rounded-xl disabled:opacity-50">
+                    {window.config.isArabic ? 'بدء الحل' : 'Start'}
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          if (showCert) {
+            return (
+               <div className="min-h-screen bg-slate-900 p-4 md:p-8 flex items-center justify-center font-sans" style={{backgroundImage: 'radial-gradient(circle at center, #1e293b 0%, #0f172a 100%)'}}>
+                  <div className="w-full max-w-5xl bg-white p-3 md:p-6 rounded-2xl shadow-2xl relative overflow-hidden">
+                     <div className="absolute top-0 left-0 w-full h-4 bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300"></div>
+                     <div className="absolute bottom-0 left-0 w-full h-4 bg-gradient-to-r from-amber-300 via-yellow-500 to-amber-300"></div>
+                     <div className="border-[6px] border-double border-slate-200 rounded-xl p-8 md:p-14 relative text-center bg-slate-50/50 flex flex-col items-center justify-center min-h-[600px] shadow-inner">
+                        <div className="mx-auto w-28 h-28 bg-gradient-to-br from-amber-100 to-amber-200 border-4 border-amber-400 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-amber-200/50 relative">
+                           <span className="text-5xl drop-shadow-md">🏆</span>
+                           <div className="absolute -bottom-3 bg-amber-500 text-white text-xs font-black px-4 py-1 rounded-full border-2 border-white shadow-sm uppercase tracking-widest">
+                              {window.config.isArabic ? 'ممتاز' : 'Excellent'}
+                           </div>
+                        </div>
+                        <h1 className="text-4xl md:text-6xl font-black text-slate-800 mb-4 tracking-tight">{window.config.isArabic ? 'شهادة تفوق وإنجاز' : 'Certificate of Achievement'}</h1>
+                        <p className="text-lg md:text-2xl text-amber-600 font-bold mb-12">{window.config.isArabic ? 'بكل فخر واعتزاز، نمنح هذا التقدير إلى' : 'This is proudly presented to'}</p>
+                        <div className="relative w-full max-w-3xl mx-auto py-8 mb-12">
+                           <div className="absolute inset-0 flex items-center justify-center"><div className="w-full border-t-2 border-slate-300 border-dashed"></div></div>
+                           <h2 className="relative z-10 text-5xl md:text-7xl font-black text-blue-700 bg-slate-50/50 px-8 inline-block" style={{fontFamily: "'Cairo', sans-serif", textShadow: '3px 3px 0px rgba(255,255,255,1)'}}>{studentName}</h2>
+                        </div>
+                        <p className="text-xl md:text-2xl text-slate-700 font-medium max-w-4xl mx-auto leading-relaxed mb-20">
+                           {window.config.isArabic ? (<span>لاجتيازه ورقة العمل التفاعلية في مادة <span className="font-black text-blue-700">({window.config.subject})</span> درس <span className="font-black text-blue-700">({window.config.lesson})</span> وحصوله على العلامة الكاملة بتميز.</span>) : (<span>For outstanding performance and achieving 100% in the interactive worksheet for <span className="font-black text-blue-700">({window.config.subject})</span> - <span className="font-black text-blue-700">({window.config.lesson})</span>.</span>)}
+                        </p>
+                        <div className="flex w-full justify-between items-end px-2 md:px-16 mt-auto">
+                           <div className="text-center w-40 md:w-56">
+                              <div className="border-b-2 border-slate-800 pb-3 mb-3"><p className="text-2xl md:text-3xl font-bold text-slate-800" style={{fontFamily: "'Cairo', cursive"}}>{window.config.teacherName || (window.config.isArabic ? 'معلم المادة' : 'Teacher')}</p></div>
+                              <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">{window.config.isArabic ? 'توقيع المعلم' : 'Teacher Signature'}</p>
+                           </div>
+                           <div className="hidden md:flex w-24 h-24 rounded-full border-4 border-amber-500/30 items-center justify-center rotate-12 opacity-80">
+                              <div className="w-20 h-20 rounded-full border-2 border-dashed border-amber-500/50 flex items-center justify-center"><span className="text-amber-500/60 font-black text-2xl -rotate-12">100%</span></div>
+                           </div>
+                           <div className="text-center w-40 md:w-56">
+                              <div className="border-b-2 border-slate-800 pb-3 mb-3"><p className="text-2xl md:text-3xl font-bold text-slate-800" style={{fontFamily: "'Cairo', cursive"}}>{window.config.schoolManager}</p></div>
+                              <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">{window.config.isArabic ? 'مدير المدرسة' : 'School Manager'}</p>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            );
+          }
+
+          let renderedReadingTexts = new Set();
+          let currentInteractiveType = null;
+
+          return (
+            <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-8">
+              <div className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border-2 border-slate-300 mb-8 relative overflow-hidden">
+                 <div className="absolute top-0 left-0 w-full h-2 bg-slate-800"></div>
+                 <div className="flex flex-col md:flex-row justify-between gap-6">
+                    <div className="space-y-2 flex-1">
+                       <p className="font-black text-slate-800 text-lg">{window.config.isArabic ? 'مجمع زايد التعليمي - الظيت' : 'Zayed Educational Complex - Al Dhait'}</p>
+                       <p className="font-bold text-slate-600 flex items-center gap-2"><span className="w-16">{window.config.isArabic ? 'المادة:' : 'Subject:'}</span> <span className="text-blue-700">{window.config.subject}</span></p>
+                       <p className="font-bold text-slate-600 flex items-center gap-2"><span className="w-16">{window.config.isArabic ? 'الصف:' : 'Grade:'}</span> <span className="text-blue-700">{window.config.grade}</span></p>
+                       {window.config.teacherName && <p className="font-bold text-slate-600 flex items-center gap-2"><span className="w-16">{window.config.isArabic ? 'المعلم:' : 'Teacher:'}</span> <span className="text-blue-700">{window.config.teacherName}</span></p>}
+                    </div>
+                    <div className="flex-1 text-center flex flex-col items-center justify-center border-y md:border-y-0 md:border-x-2 border-slate-100 py-4 md:py-0 px-4">
+                       <span className="bg-slate-100 text-slate-800 font-black px-6 py-2 rounded-xl border-2 border-slate-200 tracking-widest uppercase mb-3 inline-block">
+                          {window.config.isArabic ? 'ورقة عمل تفاعلية' : 'Interactive Worksheet'}
+                       </span>
+                       <h2 className="text-xl font-black text-slate-800 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200 w-full truncate shadow-inner">{window.config.lesson}</h2>
+                    </div>
+                    <div className="space-y-3 flex-1 flex flex-col justify-center">
+                       <div className="flex items-center gap-3 border-b-2 border-dashed border-slate-200 pb-2">
+                          <span className="font-black text-slate-600 w-16">{window.config.isArabic ? 'الاسم:' : 'Name:'}</span>
+                          <span className="font-bold text-blue-700 text-lg truncate">{studentName}</span>
+                       </div>
+                       <div className="flex items-center gap-3 border-b-2 border-dashed border-slate-200 pb-2">
+                          <span className="font-black text-slate-600 w-16">{window.config.isArabic ? 'التاريخ:' : 'Date:'}</span>
+                          <span className="font-bold text-slate-800 inline-block" dir="ltr">{new Date().toLocaleDateString('en-GB')}</span>
+                       </div>
+                       <div className="flex items-center gap-3 pt-1">
+                          <span className="font-black text-slate-600 w-16">{window.config.isArabic ? 'الدرجة:' : 'Marks:'}</span>
+                          <span className="font-black text-emerald-600 text-xl bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200 shadow-sm" dir="ltr">
+                             {questions.filter(q => q.isSubmitted && q.isCorrect).reduce((sum, q) => sum + (parseFloat(q.marks) || 1), 0)} / {window.config.totalMarks}
+                          </span>
+                       </div>
+                    </div>
+                 </div>
+              </div>
+
+              {questions.map((q, i) => {
+                const showReading = q.readingText && !renderedReadingTexts.has(q.readingText);
+                if (showReading) renderedReadingTexts.add(q.readingText);
+                
+                const isSameTypeAsPrevious = q.type === currentInteractiveType;
+                currentInteractiveType = q.type;
+                const currentInstruction = isSameTypeAsPrevious ? null : window.getPrintInstruction(q.type);
+                const showInstruction = !isSameTypeAsPrevious && currentInstruction;
+
+                return (
+                  <div key={q.id} className="space-y-4">
+                    {showReading && (
+                       <div className="bg-amber-50 p-6 rounded-2xl border-2 border-amber-200 shadow-sm mt-8">
+                          <h3 className="font-bold text-amber-900 mb-3 flex items-center gap-2">📖 {window.config.isArabic ? 'اقرأ النص التالي ثم أجب:' : 'Read the text carefully:'}</h3>
+                          <p className="text-lg leading-relaxed text-amber-950 text-justify">{q.readingText}</p>
+                       </div>
+                    )}
+
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                      <div className="flex gap-4">
+                        <span className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold flex-shrink-0 mt-1">{i+1}</span>
+                        <div className="flex-1 space-y-4 overflow-hidden">
+                          {showInstruction && <span className="text-sm font-bold text-gray-500 mb-2 block pb-1 border-b border-gray-100 w-max">{currentInstruction}</span>}
+                          <h3 className="text-xl font-bold text-slate-900">{q.text}</h3>
+                          
+                          {q.imageUrl && (
+                             <div className="relative group/img rounded-xl overflow-hidden border border-slate-200 max-h-64 bg-slate-50 w-fit cursor-pointer" onClick={() => setEnlargedImage(q.imageUrl)}>
+                               <img src={q.imageUrl} className="max-h-64 object-contain p-2" />
+                               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                                  <span className="bg-white/90 text-slate-900 px-3 py-1.5 rounded-lg font-bold text-sm shadow-sm flex items-center gap-1">🔍 {window.config.isArabic ? 'تكبير' : 'Enlarge'}</span>
+                               </div>
+                             </div>
+                          )}
+
+                          {q.type === 'mcq' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {q.options.map((opt, oi) => (
+                                <label key={oi} className={'flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ' + (q.userAnswer===opt ? (q.isSubmitted ? (q.isCorrect ? 'border-emerald-500 bg-emerald-50' : 'border-red-500 bg-red-50') : 'border-blue-500 bg-blue-50') : 'border-slate-100 hover:border-slate-200')}>
+                                  <input type="radio" name={'q-'+q.id} value={opt} checked={q.userAnswer===opt} onChange={()=>setQuestions(prev=>prev.map(it=>it.id===q.id ? {...it, userAnswer:opt, isSubmitted:false} : it))} disabled={q.isSubmitted&&q.isCorrect} className="w-5 h-5 accent-current" />
+                                  <span className="text-lg font-medium">{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+
+                          {q.type === 'short' && (
+                            <textarea value={q.userAnswer||''} onChange={(e)=>setQuestions(prev=>prev.map(it=>it.id===q.id ? {...it, userAnswer:e.target.value, isSubmitted:false} : it))} disabled={q.isSubmitted&&q.isCorrect} className="w-full p-4 rounded-xl border-2 border-slate-200 outline-none text-lg min-h-[100px] bg-slate-50" placeholder={window.config.isArabic ? "اكتب الإجابة..." : "Type answer..."} />
+                          )}
+
+                          {q.type === 'classify' && (() => {
+                               const unclassifiedItems = (q.options || []).filter(item => !(q.classifyAnswers || {})[item]);
+                               const categories = q.categories || [];
+                               return (
+                                   <div className="mt-6 space-y-6">
+                                       <p className="font-black text-lg text-slate-700 mb-3">{window.config.isArabic ? 'صنف العناصر التالية في الجدول (سحب وإفلات أو نقر):' : 'Classify items in the table:'}</p>
+                                       <div 
+                                           className="p-6 bg-slate-100 rounded-2xl min-h-[100px] border-2 border-dashed border-slate-300 flex flex-wrap gap-3 items-center justify-center transition-colors"
+                                           onDragOver={e => e.preventDefault()}
+                                           onDrop={e => {
+                                               e.preventDefault();
+                                               try {
+                                                   const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                                                   if (data.type === 'classify' && data.qId === q.id) {
+                                                       setQuestions(p => p.map(it => it.id === q.id ? { ...it, classifyAnswers: { ...it.classifyAnswers, [data.item]: '' }, isSubmitted: false } : it));
+                                                   }
+                                               } catch(err) {}
+                                           }}
+                                           onClick={() => {
+                                                if (classifySelection?.qId === q.id) {
+                                                    setQuestions(p => p.map(it => it.id === q.id ? { ...it, classifyAnswers: { ...it.classifyAnswers, [classifySelection.item]: '' }, isSubmitted: false } : it));
+                                                    setClassifySelection(null);
+                                                }
+                                           }}
+                                       >
+                                           {unclassifiedItems.length === 0 && <span className="text-slate-400 font-medium text-lg">{window.config.isArabic ? 'تم تصنيف جميع العناصر' : 'All items classified'}</span>}
+                                           {unclassifiedItems.map((item, idx) => {
+                                               const isSelected = classifySelection?.qId === q.id && classifySelection?.item === item;
+                                               return (
+                                                   <div 
+                                                       key={idx}
+                                                       draggable={!q.isSubmitted || !q.isCorrect}
+                                                       onDragStart={(e) => handleClassifyDragStart(e, q.id, item)}
+                                                       onClick={(e) => { e.stopPropagation(); (!q.isSubmitted || !q.isCorrect) && handleClassifyItemClick(q.id, item); }}
+                                                       className={'px-5 py-3 rounded-xl border-2 shadow-sm font-bold text-lg cursor-grab transition-transform select-none ' + (isSelected ? 'border-blue-500 bg-blue-100 text-blue-800 scale-105' : 'bg-white border-slate-200 text-slate-700')}
+                                                   >
+                                                       {item}
+                                                   </div>
+                                               )
+                                           })}
+                                       </div>
+                                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                           {categories.map((cat, ci) => {
+                                               const catItems = (q.options || []).filter(item => (q.classifyAnswers || {})[item] === cat);
+                                               return (
+                                                   <div 
+                                                       key={ci}
+                                                       className="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden flex flex-col shadow-md"
+                                                       onDragOver={e => e.preventDefault()}
+                                                       onDrop={e => {
+                                                           e.preventDefault();
+                                                           try {
+                                                               const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                                                               if (data.type === 'classify' && data.qId === q.id) {
+                                                                   setQuestions(p => p.map(it => it.id === q.id ? { ...it, classifyAnswers: { ...it.classifyAnswers, [data.item]: cat }, isSubmitted: false } : it));
+                                                               }
+                                                           } catch(err) {}
+                                                       }}
+                                                       onClick={() => {
+                                                            if (classifySelection?.qId === q.id) {
+                                                                setQuestions(p => p.map(it => it.id === q.id ? { ...it, classifyAnswers: { ...it.classifyAnswers, [classifySelection.item]: cat }, isSubmitted: false } : it));
+                                                                setClassifySelection(null);
+                                                            }
+                                                       }}
+                                                   >
+                                                       <div className="bg-slate-100 p-4 text-center font-black text-xl text-slate-800 border-b-2 border-slate-200">{cat}</div>
+                                                       <div className="p-4 flex-1 flex flex-col gap-3 min-h-[250px] bg-slate-50">
+                                                           {catItems.map((item, ii) => {
+                                                               const isSelected = classifySelection?.qId === q.id && classifySelection?.item === item;
+                                                               return (
+                                                                   <div 
+                                                                       key={ii}
+                                                                       draggable={!q.isSubmitted || !q.isCorrect}
+                                                                       onDragStart={(e) => handleClassifyDragStart(e, q.id, item)}
+                                                                       onClick={(e) => { e.stopPropagation(); (!q.isSubmitted || !q.isCorrect) && handleClassifyItemClick(q.id, item); }}
+                                                                       className={'px-4 py-3 rounded-xl border-2 text-center shadow-sm cursor-grab font-bold text-lg transition-all select-none ' + (isSelected ? 'border-blue-500 bg-blue-100 text-blue-800 scale-105' : q.isSubmitted && q.isCorrect ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-white border-slate-200 text-slate-700')}
+                                                                   >
+                                                                       {item}
+                                                                   </div>
+                                                               )
+                                                           })}
+                                                       </div>
+                                                   </div>
+                                               )
+                                           })}
+                                       </div>
+                                   </div>
+                               )
+                          })()}
+
+                          {q.type === 'order' && (
+                            <div className="space-y-2">
+                              {(q.studentOrder||[]).map((item, idx) => (
+                                <div key={idx} draggable={!q.isSubmitted||!q.isCorrect} onDragStart={e=>handleDragStart(e,q.id,idx)} onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,q.id,idx)} className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-200 bg-white cursor-move select-none">
+                                  <span className="text-slate-400">⋮⋮</span>
+                                  <span className="font-medium">{item}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {q.type === 'letters' && (
+                             <div className="flex flex-col items-center gap-6 mt-4">
+                                {q.isSubmitted && q.isCorrect ? (
+                                   <div className="px-12 py-6 text-6xl font-black rounded-3xl border-4 border-emerald-400 bg-emerald-50 text-emerald-800 tracking-widest shadow-inner">
+                                      {(q.studentOrder||[]).join('')}
+                                   </div>
+                                ) : (
+                                     <div className="flex flex-col items-center gap-4">
+                                     <div className="flex flex-wrap justify-center gap-4">
+                                        {(q.studentOrder||[]).map((letter, idx) => {
+                                          const isSel = swapSelection && swapSelection.qId===q.id && swapSelection.index===idx;
+                                          return (
+                                            <div key={idx} draggable onDragStart={e=>handleDragStart(e,q.id,idx)} onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,q.id,idx)} onClick={()=>handleLetterClick(q.id,idx)} className={'w-20 h-24 flex items-center justify-center text-5xl font-black rounded-2xl border-[5px] shadow-md cursor-pointer transition-all select-none ' + (isSel ? 'border-blue-500 bg-blue-50 text-blue-800 scale-110' : 'border-[#fcd036] bg-[#fdf2c4] text-[#6b3d0a]')}>{letter}</div>
+                                          );
+                                        })}
+                                     </div>
+                                     <p className="text-slate-500 font-bold text-sm mt-2 animate-pulse">👆 اسحب الحروف أو انقر للتبديل بينها</p>
+                                   </div>
+                                )}
+                             </div>
+                          )}
+
+                          <button onClick={()=>checkAnswer(q.id)} disabled={q.isSubmitted&&q.isCorrect} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl font-bold mt-4 disabled:opacity-50">
+                            {window.config.isArabic ? 'التحقق من الإجابة' : 'Check Answer'}
+                          </button>
+
+                          {q.isSubmitted && (
+                            <div className={'mt-4 p-4 rounded-xl border-2 ' + (q.isCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200')}>
+                              <h4 className={'font-bold text-lg mb-2 ' + (q.isCorrect?'text-emerald-700':'text-red-700')}>
+                                {q.isCorrect ? (window.config.isArabic?'إجابة صحيحة، أحسنت!':'Correct!') : (window.config.isArabic?'إجابة غير صحيحة، حاول مرة أخرى.':'Incorrect.')}
+                              </h4>
+                              {!q.isCorrect && q.hint && (
+                                <div className="mt-3 bg-white/60 p-3 rounded-lg border border-red-100 flex flex-col gap-3">
+                                  {q.hint.split('|').map((h, idx) => {
+                                    if (idx >= (q.mistakeCount || 1)) return null;
+                                    return (
+                                      <div key={idx} className="flex items-start gap-2">
+                                        <span className="text-red-500 flex-shrink-0 mt-0.5">💡</span>
+                                        <p className="text-sm font-medium leading-relaxed">
+                                          <span className="font-bold block mb-1 text-red-700">
+                                            {window.config.isArabic ? 'مساعدة (' + (idx + 1) + '):' : 'Hint (' + (idx + 1) + '):'}
+                                          </span>
+                                          {h.trim()}
+                                        </p>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {!q.isCorrect && q.imageAUrl && (
+                                <div className="mt-4 pt-4 border-t border-red-200/50">
+                                   <p className="text-sm font-bold mb-2 text-red-700 opacity-90">{window.config.isArabic ? 'تلميح بصري:' : 'Visual Hint:'}</p>
+                                   <img src={q.imageAUrl} className="max-h-48 rounded-xl border border-red-200 shadow-sm cursor-pointer hover:opacity-90 transition-opacity" onClick={() => setEnlargedImage(q.imageAUrl)} />
+                                </div>
+                              )}
+                              {q.isCorrect && q.explanation && <p className="text-sm mt-2 text-emerald-800">{q.explanation}</p>}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {allCorrect && (
+                <div className="bg-emerald-50 border-2 border-emerald-500 rounded-2xl p-8 text-center space-y-4 shadow-lg">
+                   <h2 className="text-3xl font-black text-emerald-700">🎉 {window.config.isArabic ? 'عمل رائع!' : 'Great Job!'}</h2>
+                   <button onClick={() => setShowCert(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xl px-12 py-4 rounded-xl shadow-md transition-transform hover:scale-105 active:scale-95">
+                     🎓 {window.config.isArabic ? 'استخراج الشهادة' : 'Get Certificate'}
+                   </button>
+                </div>
+              )}
+
+              {enlargedImage && (
+                <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setEnlargedImage(null)}>
+                  <button className="absolute top-4 right-4 bg-white/10 hover:bg-white/20 text-white p-2 rounded-full"><span style={{fontSize: '24px'}}>✕</span></button>
+                  <img src={enlargedImage} className="max-w-full max-h-[90vh] rounded-2xl shadow-2xl cursor-default" onClick={e => e.stopPropagation()} />
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+      </script>
+    </body>
+    </html>
+    `;
+
+    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${subject}_${lesson}_Worksheet.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  let renderedReadingTexts = new Set();
+  let currentInteractiveType = null;
+
+  return (
+    <div dir={isArabic ? "rtl" : "ltr"} className="min-h-screen bg-slate-50 font-sans text-slate-800 p-4 md:p-8" style={{ fontFamily: isArabic ? "'Cairo', 'Inter', sans-serif" : "'Inter', sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap');`}</style>
+
+      <div className="max-w-4xl mx-auto space-y-8">
+        <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
+          <button onClick={toggleLanguage} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl transition-colors font-bold text-sm">
+            <Languages size={18} /> {isArabic ? 'English' : 'العربية'}
+          </button>
+          
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+             <label className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl transition-colors font-bold text-sm cursor-pointer">
+                <FolderOpen size={18} className="text-amber-600" />
+                <span className="hidden sm:inline">{isArabic ? 'فتح ملف' : 'Load File'}</span>
+                <input type="file" accept=".json" onChange={handleLoadProject} className="hidden" />
+             </label>
+             <button onClick={handleSaveProject} className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-xl transition-colors font-bold text-sm">
+                <Save size={18} className="text-emerald-600" /> 
+                <span className="hidden sm:inline">{isArabic ? 'حفظ ملف' : 'Save File'}</span>
+             </button>
+          </div>
+        </div>
+
+        <div className="text-center space-y-4 pt-4">
+          <div className="inline-flex items-center justify-center p-4 bg-gradient-to-br from-blue-100 to-indigo-100 rounded-3xl text-blue-600 mb-2 shadow-sm border border-blue-200/50">
+             <BookOpen size={40} className="drop-shadow-sm" />
+          </div>
+          <h1 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight">{isArabic ? 'منشئ أوراق العمل الذكي' : 'Smart Worksheet Generator'}</h1>
+          <p className="text-slate-500 max-w-xl mx-auto font-medium text-lg">{isArabic ? 'أدخل التفاصيل لتوليد أسئلة تفاعلية. شاركها كملف HTML للطلاب.' : 'Enter details to generate interactive questions. Share as HTML.'}</p>
+        </div>
+
+        <form onSubmit={generateWorksheet} className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="space-y-2">
+              <label className="block text-sm font-bold text-slate-700">{isArabic ? 'المادة' : 'Subject'}</label>
+              <select value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-0 outline-none transition-all bg-slate-50 hover:bg-slate-100/50 font-semibold text-slate-800">
+                {(isArabic ? SUBJECTS : SUBJECTS_EN).map((s, idx) => <option key={idx} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-bold text-slate-700">{isArabic ? 'الصف الدراسي' : 'Grade'}</label>
+              <select value={grade} onChange={(e) => setGrade(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-0 outline-none transition-all bg-slate-50 hover:bg-slate-100/50 font-semibold text-slate-800">
+                {(isArabic ? GRADES : GRADES_EN).map((g, idx) => <option key={idx} value={g}>{g}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2 lg:col-span-1">
+              <label className="block text-sm font-bold text-slate-700">{isArabic ? 'عنوان الدرس' : 'Lesson Title'}</label>
+              <input type="text" placeholder={isArabic ? "مثال: دورة حياة النبات..." : "e.g., Plant Life Cycle..."} value={lesson} onChange={(e) => setLesson(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-0 outline-none transition-all bg-white font-bold placeholder-slate-400" />
+            </div>
+            <div className="space-y-2 lg:col-span-1">
+              <label className="block text-sm font-bold text-slate-700">{isArabic ? 'اسم المعلم' : 'Teacher Name'}</label>
+              <input type="text" placeholder={isArabic ? "مثال: أ. محمد بركات" : "e.g., Mr. Mohammad Barakat"} value={teacherName} onChange={(e) => setTeacherName(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-blue-500 focus:ring-0 outline-none transition-all bg-white font-bold placeholder-slate-400" />
+            </div>
+
+            <div className="space-y-4 lg:col-span-full bg-slate-50 p-5 md:p-6 rounded-2xl border border-slate-200 mt-2">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-2">
+                <label className="block text-base font-black text-slate-800 flex items-center gap-2">
+                  <FileQuestion className="text-blue-500" />
+                  {isArabic ? 'أنواع الأسئلة وأعدادها' : 'Question Types & Counts'}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTypes(prev => [...prev, { type: isArabic ? QUESTION_TYPES[0] : QUESTION_TYPES_EN[0], count: 1 }])}
+                  className="text-sm flex items-center justify-center gap-1.5 text-blue-700 font-bold hover:bg-blue-100 transition-colors bg-blue-100/50 px-4 py-2 rounded-xl border border-blue-200"
+                >
+                  <Plus size={16} /> {isArabic ? 'إضافة نوع آخر' : 'Add Type'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {selectedTypes.map((st, index) => {
+                  const isStReading = st.type === "القراءة والاستيعاب" || st.type === "Reading Comprehension";
+                  return (
+                    <div key={index} className="flex gap-3 items-center bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm transition-all hover:border-blue-300 hover:shadow-md group">
+                      <span className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-black text-sm flex items-center justify-center flex-shrink-0 border border-slate-200 group-hover:bg-blue-100 group-hover:text-blue-700 group-hover:border-blue-200 transition-colors">{index + 1}</span>
+                      <select
+                        value={st.type}
+                        onChange={(e) => setSelectedTypes(prev => prev.map((item, i) => i === index ? { ...item, type: e.target.value } : item))}
+                        className="flex-1 px-3 py-2 rounded-lg border-none bg-transparent focus:ring-0 outline-none font-bold text-slate-700 cursor-pointer"
+                      >
+                        {(isArabic ? QUESTION_TYPES : QUESTION_TYPES_EN).map((type, idx) => <option key={idx} value={type}>{type}</option>)}
+                      </select>
+                      
+                      {!isStReading && (
+                        <div className="flex gap-2 items-center">
+                           <input
+                             type="number"
+                             min="1"
+                             max="30"
+                             value={st.count}
+                             onChange={(e) => setSelectedTypes(prev => prev.map((item, i) => i === index ? { ...item, count: parseInt(e.target.value) || 1 } : item))}
+                             className="w-16 px-2 py-2 rounded-lg border-2 border-slate-200 focus:border-blue-500 outline-none transition-all font-black text-center text-blue-700 bg-slate-50"
+                           />
+                           {selectedTypes.length > 1 && (
+                             <button
+                               type="button"
+                               onClick={() => setSelectedTypes(prev => prev.filter((_, i) => i !== index))}
+                               className="p-2 text-slate-400 hover:bg-red-100 hover:text-red-600 rounded-lg transition-colors flex-shrink-0"
+                             >
+                               <Trash2 size={18} />
+                             </button>
+                           )}
+                        </div>
+                      )}
+                      {isStReading && selectedTypes.length > 1 && (
+                          <button type="button" onClick={() => setSelectedTypes(prev => prev.filter((_, i) => i !== index))} className="p-2 text-slate-400 hover:bg-red-100 hover:text-red-600 rounded-lg transition-colors flex-shrink-0 ml-auto"><Trash2 size={18} /></button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {isReadingType && (
+                <div className="mt-4 p-5 bg-amber-50 border-2 border-amber-200 rounded-2xl shadow-sm flex flex-col sm:flex-row gap-6 items-end relative overflow-hidden">
+                  <div className="absolute right-0 top-0 w-24 h-24 bg-amber-200 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+                  <div className="space-y-3 flex-1 w-full relative z-10">
+                    <label className="block text-sm font-black text-amber-900 flex items-center gap-2"><BookOpen size={16}/> {isArabic ? 'طول نص القراءة والاستيعاب' : 'Reading Text Length'}</label>
+                    <select value={readingLength} onChange={(e) => setReadingLength(e.target.value)} className="w-full px-4 py-3 rounded-xl border-2 border-amber-300 focus:border-amber-500 outline-none transition-all bg-white font-bold text-amber-950 shadow-sm cursor-pointer">
+                      <option value="short">{isArabic ? 'قصير ومبسط' : 'Short & Simple'}</option>
+                      <option value="medium">{isArabic ? 'متوسط الطول' : 'Medium Length'}</option>
+                      <option value="long">{isArabic ? 'طويل وشامل' : 'Long and Comprehensive'}</option>
+                    </select>
+                  </div>
+                  <div className="space-y-3 w-full sm:w-1/3 relative z-10">
+                    <label className="block text-sm font-black text-amber-900">{isArabic ? 'عدد أسئلة النص' : 'Questions Count'}</label>
+                    <div className="relative">
+                      <input type="number" min="1" max="10" value={readingQuestionsCount} onChange={(e) => setReadingQuestionsCount(parseInt(e.target.value)||1)} className="w-full px-4 py-3 rounded-xl border-2 border-amber-300 focus:border-amber-500 outline-none transition-all bg-white font-black text-center text-amber-900 text-lg shadow-sm" />
+                      <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-600 font-bold">{isArabic ? 'أسئلة' : 'Qs'}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="mt-8 space-y-3">
+            <label className="block text-sm font-bold text-slate-700">{isArabic ? 'إرفاق ملفات كمصدر للأسئلة (اختياري)' : 'Attach source files (Optional)'}</label>
+            <div className="relative border-2 border-dashed border-slate-300 rounded-2xl p-8 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 transition-colors text-center cursor-pointer group">
+              <input type="file" multiple onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+              <div className="flex flex-col items-center gap-3 text-slate-500 group-hover:text-blue-600 transition-colors">
+                <div className="w-14 h-14 bg-white rounded-full shadow-sm flex items-center justify-center border border-slate-200 group-hover:border-blue-200"><Upload size={28} className="text-blue-500" /></div>
+                <div>
+                   <span className="font-bold text-lg block mb-1">{isArabic ? 'اضغط هنا أو اسحب الملفات للإرفاق' : 'Click or drag files to attach'}</span>
+                   <span className="text-sm font-medium opacity-75">{isArabic ? 'يدعم جميع أنواع الملفات' : 'Supports all file types'}</span>
+                </div>
+              </div>
+            </div>
+            {fileError && <div className="p-3 bg-red-50 text-red-600 rounded-xl text-sm font-bold border border-red-200 flex items-center gap-2"><AlertCircle size={16}/>{fileError}</div>}
+            {files.length > 0 && (
+              <div className="flex flex-wrap gap-3 mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                {files.map(f => (
+                  <div key={f.id} className="flex items-center gap-2 bg-white border-2 border-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-bold shadow-sm hover:border-blue-300 transition-colors">
+                    {f.type === 'media' && f.mimeType.startsWith('image/') ? <ImageIcon size={18} className="text-emerald-500"/> : f.type === 'media' && f.mimeType === 'application/pdf' ? <FileIcon size={18} className="text-red-500"/> : <FileText size={18} className="text-blue-500"/>}
+                    <span className="max-w-[150px] truncate" dir="ltr">{f.name}</span>
+                    <button type="button" onClick={() => removeFile(f.id)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1 rounded-md transition-colors"><X size={16} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {error && <div className="mt-6 p-4 bg-red-50 text-red-700 rounded-xl font-bold border-2 border-red-200 flex items-start gap-3"><AlertCircle className="flex-shrink-0 mt-0.5" /> <p>{error}</p></div>}
+
+          <div className="mt-8 pt-6 border-t border-slate-100 flex justify-end">
+            <button type="submit" disabled={isGeneratingSheet} className="w-full md:w-auto flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-8 py-4 rounded-xl font-black text-lg shadow-lg shadow-blue-500/30 transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-70 disabled:hover:scale-100">
+              {isGeneratingSheet ? <Loader2 className="animate-spin" size={24} /> : <Sparkles size={24} />}
+              {isGeneratingSheet ? (isArabic ? 'جاري العصف الذهني والتوليد...' : 'Generating...') : (isArabic ? 'توليد ورقة العمل السحرية' : 'Generate Magic Worksheet')}
+            </button>
+          </div>
+        </form>
+
+        {questions.length > 0 && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b-2 border-slate-200 pb-4">
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg text-blue-600"><FileQuestion size={24} /></div>
+                {isArabic ? 'الأسئلة المقترحة' : 'Suggested Questions'}
+                <span className="text-sm font-bold bg-slate-100 text-slate-500 px-3 py-1 rounded-full border border-slate-200">{questions.length}</span>
+              </h2>
+              <div className="flex items-center gap-4">
+                  <div className="flex bg-slate-200/70 p-1.5 rounded-xl border border-slate-300/50">
+                    <button onClick={() => setViewMode('teacher')} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${viewMode === 'teacher' ? 'bg-white text-blue-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'}`}><GraduationCap size={18} />{isArabic ? 'وضع المعلم' : 'Teacher Mode'}</button>
+                    <button onClick={() => setViewMode('student')} className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${viewMode === 'student' ? 'bg-white text-emerald-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'}`}><User size={18} />{isArabic ? 'وضع الطالب' : 'Student Mode'}</button>
+                  </div>
+              </div>
+            </div>
+
+            {viewMode === 'teacher' && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3 text-amber-800 shadow-sm">
+                <Info className="w-6 h-6 flex-shrink-0 text-amber-600" />
+                <p className="text-sm font-bold leading-relaxed">
+                  {isArabic ? 'ملاحظة: الذكاء الاصطناعي قد يرتكب بعض الأخطاء أحياناً، خاصة في تفاصيل الصور المُولّدة. يُرجى مراجعة الأسئلة جيداً، ويمكنك دائماً تعديلها يدوياً أو الضغط على "إعادة" للصور إذا لزم الأمر.' : 'Note: AI can sometimes make mistakes, especially in generated image details. Please review the questions carefully. You can always edit them manually or click "Redraw" for images if needed.'}
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-8">
+              {(() => {
+                renderedReadingTexts = new Set();
+                currentInteractiveType = null;
+
+                return questions.map((q, index) => {
+                  const showReading = q.readingText && !renderedReadingTexts.has(q.readingText);
+                  if (showReading) renderedReadingTexts.add(q.readingText);
+                  
+                  const isSameTypeAsPrevious = q.type === currentInteractiveType;
+                  currentInteractiveType = q.type;
+                  const currentInstruction = isSameTypeAsPrevious ? null : window.getPrintInstruction(q.type);
+                  const showInstruction = !isSameTypeAsPrevious && currentInstruction;
+
+                  return (
+                    <div key={q.id} className="relative group space-y-4">
+                      {showReading && (
+                         <div className="bg-gradient-to-br from-amber-50 to-orange-50 p-6 md:p-8 rounded-3xl border-2 border-amber-200 shadow-sm mt-10 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-300 rounded-full blur-3xl opacity-20 pointer-events-none"></div>
+                            <h3 className="font-black text-amber-900 mb-4 flex items-center gap-2 text-xl"><BookOpen className="text-amber-600"/> {isArabic ? 'اقرأ النص التالي ثم أجب:' : 'Read the text carefully:'}</h3>
+                            {viewMode === 'teacher' && q.isEditing ? <textarea value={q.readingText} onChange={(e) => handleQuestionEdit(q.id, 'readingText', e.target.value)} className="w-full p-5 rounded-2xl border-2 border-amber-300 outline-none text-lg leading-relaxed bg-white/80 min-h-[200px] font-medium text-amber-950 focus:border-amber-500 transition-colors shadow-inner" /> : <p className="text-lg leading-relaxed text-amber-950 text-justify font-medium">{q.readingText}</p>}
+                         </div>
+                      )}
+
+                      <div className={`bg-white p-6 md:p-8 rounded-3xl shadow-sm border-2 transition-all duration-300 ${q.isEditing ? 'border-blue-400 ring-4 ring-blue-50' : 'border-slate-200 hover:border-blue-300 hover:shadow-md'}`}>
+                        {viewMode === 'teacher' && !q.isEditing && (
+                          <div className={`absolute -top-3 ${isArabic ? 'left-6' : 'right-6'} opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0 flex items-center gap-1.5 bg-white shadow-lg border border-slate-200 p-1.5 rounded-xl z-10`}>
+                            <button onClick={() => setQuestions(questions.map(item => item.id === q.id ? { ...item, isEditing: true } : item))} className="p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors flex items-center justify-center font-bold text-xs gap-1"><Pencil size={14} /> {isArabic ? 'تعديل' : 'Edit'}</button>
+                            <div className="w-px h-5 bg-slate-200"></div>
+                            <button onClick={() => deleteQuestion(q.id)} className="p-2 text-red-500 hover:bg-red-50 hover:text-red-700 rounded-lg transition-colors flex items-center justify-center font-bold text-xs gap-1"><Trash2 size={14} /> {isArabic ? 'حذف' : 'Delete'}</button>
+                          </div>
+                        )}
+
+                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-8">
+                          <div className="flex-1 space-y-5 overflow-hidden">
+                            <div className="flex items-start gap-4">
+                              <div className="flex-shrink-0 flex flex-col items-center gap-2">
+                                 <span className="flex items-center justify-center w-10 h-10 rounded-full bg-slate-100 border-2 border-slate-200 text-slate-700 font-black text-lg shadow-sm">{index + 1}</span>
+                              </div>
+                              {viewMode === 'teacher' && q.isEditing ? (
+                                <div className="flex-1 space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                                  <input type="text" value={q.text} onChange={(e) => handleQuestionEdit(q.id, 'text', e.target.value)} className="w-full p-4 rounded-xl border-2 border-blue-200 focus:border-blue-500 outline-none font-bold text-xl bg-white shadow-sm" placeholder={isArabic ? 'نص السؤال...' : 'Question text...'}/>
+                                  <div className="flex flex-wrap gap-4">
+                                      <div className="flex-1 min-w-[200px] space-y-2"><p className="text-sm font-black text-slate-700 flex items-center gap-1.5"><CheckCircle2 size={16} className="text-green-500"/>{isArabic ? 'الإجابة الصحيحة:' : 'Correct Answer:'}</p><input type="text" value={q.answer} onChange={(e) => handleQuestionEdit(q.id, 'answer', e.target.value)} className="w-full p-3 rounded-xl border-2 border-green-200 focus:border-green-500 outline-none font-bold bg-white" /></div>
+                                      <div className="w-full sm:w-32 space-y-2"><p className="text-sm font-black text-slate-700 flex items-center gap-1.5">🎯 {isArabic ? 'الدرجة:' : 'Marks:'}</p><input type="number" step="0.5" min="0" value={q.marks || 1} onChange={(e) => handleQuestionEdit(q.id, 'marks', parseFloat(e.target.value)||0)} className="w-full p-3 rounded-xl border-2 border-amber-300 focus:border-amber-500 outline-none font-black text-center bg-white text-amber-700" /></div>
+                                  </div>
+                                  <div className="space-y-2"><p className="text-sm font-black text-slate-700 flex items-center gap-1.5"><AlertCircle size={16} className="text-orange-500"/> {isArabic ? 'تلميحات متدرجة (افصل بينها بـ | ):' : 'Progressive Hints (separate with |):'}</p><input type="text" value={q.hint || ''} onChange={(e) => handleQuestionEdit(q.id, 'hint', e.target.value)} className="w-full p-3 rounded-xl border-2 border-orange-200 focus:border-orange-500 outline-none font-medium bg-white" placeholder={isArabic ? "تلميح أول | معلومة مساعدة | تلميح مباشر" : "Hint 1 | Hint 2 | Hint 3"}/></div>
+                                  <div className="space-y-2"><p className="text-sm font-black text-slate-700 flex items-center gap-1.5"><Sparkles size={16} className="text-indigo-500"/> {isArabic ? 'شرح وتوضيح:' : 'Explanation:'}</p><textarea value={q.explanation || ''} onChange={(e) => handleQuestionEdit(q.id, 'explanation', e.target.value)} className="w-full p-3 rounded-xl border-2 border-indigo-200 focus:border-indigo-500 outline-none font-medium bg-white" rows="2" /></div>
+                                  <div className="pt-2 flex justify-end">
+                                     <button onClick={() => saveEditedQuestion(q.id)} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-md transition-all active:scale-95"><Save size={18} /> {isArabic ? 'حفظ التعديلات' : 'Save Changes'}</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div>
+                                   {viewMode === 'teacher' && q.bloomLevel && <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 text-xs font-black px-2.5 py-1 rounded-lg border border-slate-200 mb-3 shadow-sm"><span className="w-2 h-2 rounded-full bg-blue-400"></span>{q.bloomLevel}</span>}
+                                   {showInstruction && <span className="text-sm font-black text-slate-400 mb-2 block pb-2 border-b-2 border-slate-100 w-max uppercase tracking-wider">{currentInstruction}</span>}
+                                   <h3 className="text-2xl font-black text-slate-800 pt-1 leading-relaxed">{q.text}</h3>
+                                </div>
+                              )}
+                            </div>
+
+                            {q.type === 'mcq' && q.options && !q.isEditing && (
+                              <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${isArabic ? 'mr-14' : 'ml-14'} mt-4`}>
+                                {q.options.map((opt, optIdx) => {
+                                  let labelClass = 'border-slate-200 bg-white hover:border-blue-300 hover:bg-slate-50'; let textClass = 'text-slate-700';
+                                  if (q.userAnswer === opt) {
+                                    if (q.isSubmitted) { if (q.isCorrect) { labelClass = 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200'; textClass = 'font-black text-emerald-900'; } else { labelClass = 'border-red-500 bg-red-50 ring-2 ring-red-200'; textClass = 'font-black text-red-900'; } }
+                                    else { labelClass = 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'; textClass = 'font-black text-blue-900'; }
+                                  }
+                                  return viewMode === 'student' ? (
+                                    <label key={optIdx} className={`flex items-center gap-4 p-5 rounded-2xl border-2 cursor-pointer transition-all shadow-sm ${labelClass}`}><input type="radio" name={`q-${q.id}`} value={opt} checked={q.userAnswer === opt} onChange={() => handleStudentAnswer(q.id, opt)} disabled={q.isSubmitted && q.isCorrect} className="w-6 h-6 accent-blue-600" /><span className={`text-lg font-bold ${textClass}`}>{opt}</span></label>
+                                  ) : (
+                                    <div key={optIdx} className="flex items-center gap-3 p-4 rounded-xl border-2 border-slate-100 bg-slate-50"><div className="w-5 h-5 rounded-full border-2 border-slate-300 bg-white"></div><span className="text-slate-700 font-bold">{opt}</span></div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {q.type === 'short' && !q.isEditing && (
+                              <div className={`${isArabic ? 'mr-14' : 'ml-14'} mt-4`}>
+                                {viewMode === 'student' ? <textarea placeholder={isArabic ? "اكتب إجابتك هنا..." : "Type answer..."} value={q.userAnswer || ''} onChange={(e) => handleStudentAnswer(q.id, e.target.value)} disabled={q.isSubmitted && q.isCorrect} className="w-full p-5 rounded-2xl border-2 border-slate-200 outline-none focus:border-blue-500 transition-all text-xl font-bold resize-y bg-slate-50 min-h-[120px] shadow-inner" /> : <div className="flex flex-col gap-6 py-4"><div className="border-b-2 border-dashed border-slate-300 h-6 w-full"></div><div className="border-b-2 border-dashed border-slate-300 h-6 w-full"></div></div>}
+                              </div>
+                            )}
+
+                            {q.type === 'classify' && !q.isEditing && (() => {
+                               const unclassifiedItems = (q.options || []).filter(item => !(q.classifyAnswers || {})[item]);
+                               const categories = q.categories || [];
+                               return (
+                                   <div className={`${isArabic ? 'mr-14' : 'ml-14'} mt-8 space-y-8`}>
+                                       {viewMode === 'student' ? (
+                                           <>
+                                               <p className="font-black text-xl text-slate-700 mb-4 flex items-center gap-2">🎯 {isArabic ? 'اسحب العناصر للتصنيف المناسب:' : 'Drag items to classify:'}</p>
+                                               <div 
+                                                   className="p-8 bg-slate-100 rounded-3xl min-h-[120px] border-2 border-dashed border-slate-300 flex flex-wrap gap-4 items-center justify-center transition-all shadow-inner"
+                                                   onDragOver={e => e.preventDefault()}
+                                                   onDrop={e => { e.preventDefault(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data.type === 'classify' && data.qId === q.id) { setQuestions(p => p.map(it => it.id === q.id ? { ...it, classifyAnswers: { ...it.classifyAnswers, [data.item]: '' }, isSubmitted: false } : it)); } } catch(err) {} }}
+                                                   onClick={() => { if (classifySelection?.qId === q.id) { setQuestions(p => p.map(it => it.id === q.id ? { ...it, classifyAnswers: { ...it.classifyAnswers, [classifySelection.item]: '' }, isSubmitted: false } : it)); setClassifySelection(null); } }}
+                                               >
+                                                   {unclassifiedItems.length === 0 && <span className="text-slate-400 font-bold text-xl px-4 py-2 bg-white rounded-xl border border-slate-200">{isArabic ? '✨ تم تصنيف جميع العناصر' : '✨ All items classified'}</span>}
+                                                   {unclassifiedItems.map((item, idx) => {
+                                                       const isSelected = classifySelection?.qId === q.id && classifySelection?.item === item;
+                                                       return (
+                                                           <div key={idx} draggable={!q.isSubmitted || !q.isCorrect} onDragStart={(e) => handleClassifyDragStart(e, q.id, item)} onClick={(e) => { e.stopPropagation(); (!q.isSubmitted || !q.isCorrect) && handleClassifyItemClick(q.id, item); }} className={`px-6 py-3.5 rounded-2xl border-2 shadow-sm font-black text-lg cursor-grab transition-all select-none hover:-translate-y-1 ${isSelected ? 'border-blue-500 bg-blue-100 text-blue-800 scale-105 ring-4 ring-blue-50' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:shadow-md'}`}>{item}</div>
+                                                       )
+                                                   })}
+                                               </div>
+                                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                                   {categories.map((cat, ci) => {
+                                                       const catItems = (q.options || []).filter(item => (q.classifyAnswers || {})[item] === cat);
+                                                       return (
+                                                           <div key={ci} className="bg-white rounded-3xl border-2 border-slate-200 overflow-hidden flex flex-col shadow-sm transition-all hover:border-blue-300 hover:shadow-md group" onDragOver={e => e.preventDefault()} onDrop={e => handleClassifyDrop(e, q.id, cat)} onClick={() => handleClassifyZoneClick(q.id, cat)}>
+                                                               <div className="bg-slate-100 p-5 text-center font-black text-xl text-slate-800 border-b-2 border-slate-200 group-hover:bg-blue-50 transition-colors">{cat}</div>
+                                                               <div className="p-5 flex-1 flex flex-col gap-3 min-h-[250px] bg-slate-50/50">
+                                                                   {catItems.map((item, ii) => {
+                                                                       const isSelected = classifySelection?.qId === q.id && classifySelection?.item === item;
+                                                                       return (
+                                                                           <div key={ii} draggable={!q.isSubmitted || !q.isCorrect} onDragStart={(e) => handleClassifyDragStart(e, q.id, item)} onClick={(e) => { e.stopPropagation(); (!q.isSubmitted || !q.isCorrect) && handleClassifyItemClick(q.id, item); }} className={`px-5 py-3.5 rounded-xl border-2 text-center shadow-sm cursor-grab font-black text-lg transition-all select-none ${isSelected ? 'border-blue-500 bg-blue-100 text-blue-800 scale-105' : q.isSubmitted && q.isCorrect ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300'}`}>{item}</div>
+                                                                       )
+                                                                   })}
+                                                               </div>
+                                                           </div>
+                                                       )
+                                                   })}
+                                               </div>
+                                           </>
+                                       ) : (
+                                           <div className="space-y-4 p-6 bg-slate-50 rounded-3xl border-2 border-slate-200 shadow-inner">
+                                               <p className="text-lg font-black text-slate-500 flex items-center gap-2">📋 {isArabic ? 'الفئات المتاحة:' : 'Categories:'} <span className="text-slate-800">{(q.categories||[]).join(' - ')}</span></p>
+                                               <div className="flex flex-wrap gap-3 pt-2">{q.options.map((opt, idx) => <span key={idx} className="bg-white px-5 py-2.5 border-2 border-slate-200 rounded-xl font-bold text-slate-700 shadow-sm">{opt}</span>)}</div>
+                                           </div>
+                                       )}
+                                   </div>
+                               );
+                            })()}
+
+                            {q.type === 'order' && q.options && !q.isEditing && (
+                              <div className={`${isArabic ? 'mr-14' : 'ml-14'} mt-6 space-y-4`}>
+                                {viewMode === 'student' ? (
+                                  <div className="space-y-3 p-4 bg-slate-50 rounded-3xl border-2 border-slate-200">
+                                    {(q.studentOrder || q.options).map((item, idx) => (
+                                      <div key={idx} draggable={!q.isSubmitted || !q.isCorrect} onDragStart={(e) => handleDragStart(e, q.id, idx)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, q.id, idx)} className={`flex items-center justify-between p-4 rounded-2xl border-2 transition-all select-none shadow-sm ${q.isSubmitted && q.isCorrect ? 'border-emerald-500 bg-emerald-50 opacity-90' : 'border-slate-200 bg-white cursor-move hover:border-blue-300 hover:shadow-md'}`}>
+                                        <div className="flex items-center gap-4 flex-1"><GripVertical className={`flex-shrink-0 ${q.isSubmitted && q.isCorrect ? 'text-emerald-400' : 'text-slate-400'}`} size={24} /><span className={`font-bold text-lg ${q.isSubmitted && q.isCorrect ? 'text-emerald-900' : 'text-slate-700'}`}>{item}</span></div>
+                                        {(!q.isSubmitted || !q.isCorrect) && <div className="flex flex-col gap-1 ml-4"><button onClick={() => moveOrder(q.id, idx, -1)} disabled={idx === 0} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30 transition-colors"><ChevronUp size={18} /></button><button onClick={() => moveOrder(q.id, idx, 1)} disabled={idx === (q.studentOrder || q.options).length - 1} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30 transition-colors"><ChevronDown size={18} /></button></div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3"><p className="text-sm font-black text-slate-400 mb-2 uppercase tracking-wider">{isArabic ? 'الترتيب المبعثر:' : 'Scrambled Order:'}</p>{q.options.map((opt, idx) => <div key={idx} className="p-4 rounded-xl border-2 border-slate-100 bg-slate-50 font-bold text-slate-700">{opt}</div>)}</div>
+                                )}
+                              </div>
+                            )}
+
+                            {q.type === 'letters' && !q.isEditing && (
+                              <div className={`flex flex-col items-center gap-8 mt-8 ${isArabic ? 'mr-14' : 'ml-14'}`}>
+                                {viewMode === 'student' ? (
+                                  q.isSubmitted && q.isCorrect ? (
+                                    <div className="px-16 py-8 text-7xl font-black rounded-[2rem] border-4 border-emerald-400 bg-emerald-50 text-emerald-800 tracking-widest shadow-inner animate-in zoom-in duration-300">{(q.studentOrder || []).join('')}</div>
+                                  ) : (
+                                    <div className="flex flex-col items-center gap-6 w-full p-8 bg-slate-50 rounded-[2.5rem] border-2 border-slate-200">
+                                      <div className="flex flex-wrap justify-center gap-4">
+                                        {(q.studentOrder || []).map((letter, idx) => {
+                                          const isSelected = swapSelection?.qId === q.id && swapSelection?.index === idx;
+                                          return (
+                                            <div key={idx} draggable={!q.isSubmitted || !q.isCorrect} onDragStart={(e) => handleDragStart(e, q.id, idx)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, q.id, idx)} onClick={() => (!q.isSubmitted || !q.isCorrect) && handleLetterClick(q.id, idx)} className={`w-24 h-28 flex items-center justify-center text-5xl font-black rounded-3xl border-[6px] shadow-sm cursor-pointer transition-all select-none hover:-translate-y-2 ${isSelected ? 'border-blue-500 bg-blue-100 text-blue-800 scale-110 ring-4 ring-blue-100' : 'border-[#eab308] bg-[#fef08a] text-[#854d0e] hover:shadow-lg'}`}>{letter}</div>
+                                          );
+                                        })}
+                                      </div>
+                                      <p className="text-slate-500 font-bold text-base mt-2 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500 animate-ping"></div> {isArabic ? 'اسحب الحروف أو انقر للتبديل بينها' : 'Drag or click letters to swap'}</p>
+                                    </div>
+                                  )
+                                ) : (
+                                  <div className="flex gap-3">{(q.answer||'').split('').map((l,i)=><div key={i} className="w-20 h-24 flex items-center justify-center text-4xl font-black rounded-2xl border-4 border-slate-200 bg-slate-50 text-slate-400 opacity-80">{l}</div>)}</div>
+                                )}
+                              </div>
+                            )}
+
+                            {viewMode === 'student' && !q.isEditing && (
+                              <div className={`${isArabic ? 'mr-14' : 'ml-14'} mt-6`}>
+                                <button onClick={() => checkStudentAnswer(q.id)} disabled={q.isSubmitted && q.isCorrect} className="bg-slate-800 hover:bg-slate-900 text-white px-8 py-3.5 rounded-xl font-black text-base disabled:opacity-50 flex items-center gap-2 shadow-md transition-all active:scale-95"><Sparkles size={18}/> {isArabic ? 'تحقق من الإجابة' : 'Check Answer'}</button>
+                                {q.isSubmitted && (
+                                  <div className={`mt-6 p-6 rounded-2xl border-2 transition-all duration-300 animate-in slide-in-from-top-4 ${q.isCorrect ? 'bg-emerald-50 border-emerald-200 shadow-sm' : 'bg-red-50 border-red-200 shadow-sm'}`}>
+                                    {q.isCorrect ? (
+                                      <div className="flex items-start gap-4 text-emerald-900">
+                                        <div className="bg-emerald-100 p-2 rounded-full"><CheckCircle2 className="w-8 h-8 text-emerald-600" /></div>
+                                        <div>
+                                          <h4 className="font-black text-xl mb-1 text-emerald-700">{isArabic ? 'إجابة صحيحة، أحسنت صنعاً!' : 'Correct, Great Job!'}</h4>
+                                          <p className="text-base font-medium">{q.explanation}</p>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-start gap-4 text-red-900">
+                                        <div className="bg-red-100 p-2 rounded-full"><XCircle className="w-8 h-8 text-red-600" /></div>
+                                        <div className="flex-1 w-full">
+                                          <h4 className="font-black text-xl mb-3 text-red-700">{isArabic ? 'إجابة غير صحيحة، حاول مرة أخرى.' : 'Incorrect, try again.'}</h4>
+                                          {q.hint && (
+                                            <div className="bg-white/80 p-4 rounded-xl border border-red-100 flex flex-col gap-3 shadow-inner">
+                                              {q.hint.split('|').map((h, idx) => {
+                                                if (idx >= (q.mistakeCount || 1)) return null;
+                                                return (
+                                                  <div key={idx} className="flex items-start gap-3">
+                                                    <div className="bg-amber-100 p-1.5 rounded-lg flex-shrink-0 mt-0.5"><AlertCircle className="w-5 h-5 text-amber-600" /></div>
+                                                    <p className="text-base font-bold leading-relaxed text-slate-700">
+                                                      <span className="font-black block mb-1 text-amber-800">
+                                                        {isArabic ? `مساعدة (${idx + 1}):` : `Hint (${idx + 1}):`}
+                                                      </span>
+                                                      {h.trim()}
+                                                    </p>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                          {q.imageAUrl && (
+                                            <div className="mt-5 pt-5 border-t border-red-200/50">
+                                              <p className="text-sm font-black mb-3 text-red-800 flex items-center gap-2"><ImageIcon size={16}/> {isArabic ? 'تلميح بصري:' : 'Visual Hint:'}</p>
+                                              <img src={q.imageAUrl} className="max-h-56 rounded-xl border-2 border-red-200 shadow-sm cursor-pointer hover:opacity-90 transition-opacity" onClick={() => setEnlargedImage(q.imageAUrl)} />
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {viewMode === 'teacher' && !q.isEditing && (
+                              <div className={`mt-8 ${isArabic ? 'mr-14' : 'ml-14'} bg-slate-50 p-6 rounded-2xl border-2 border-slate-200 space-y-4 relative overflow-hidden`}>
+                                <div className="absolute top-0 left-0 w-2 h-full bg-slate-300"></div>
+                                <div className="flex items-start gap-3 text-slate-800 bg-white p-4 rounded-xl border border-slate-100 shadow-sm"><div className="bg-green-100 p-1.5 rounded-lg"><CheckCircle2 size={20} className="text-green-600 flex-shrink-0" /></div><div className="flex-1"><span className="font-black text-green-800 block mb-1 text-sm">{isArabic ? 'الإجابة الصحيحة المعرّفة:' : 'Defined Correct Answer:'}</span> <p className="font-bold text-lg">{q.answer}</p></div></div>
+                                {q.hint && (
+                                  <div className="flex items-start gap-3 text-slate-800 bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex-col">
+                                    <div className="flex items-center gap-2 mb-2"><div className="bg-amber-100 p-1.5 rounded-lg"><AlertCircle size={20} className="text-amber-600 flex-shrink-0" /></div><span className="font-black text-amber-800 text-sm">{isArabic ? 'التلميحات المتدرجة (تظهر عند الخطأ):' : 'Progressive Hints:'}</span></div>
+                                    <ul className="list-decimal list-inside text-base font-bold space-y-2 w-full pl-8 text-slate-600">
+                                      {q.hint.split('|').map((h, i) => <li key={i}>{h.trim()}</li>)}
+                                    </ul>
+                                  </div>
+                                )}
+                                {q.explanation && <div className="flex items-start gap-3 text-slate-800 bg-white p-4 rounded-xl border border-slate-100 shadow-sm"><div className="bg-indigo-100 p-1.5 rounded-lg"><Sparkles size={20} className="text-indigo-600 flex-shrink-0" /></div><div className="flex-1"><span className="font-black text-indigo-800 block mb-1 text-sm">{isArabic ? 'توضيح (يظهر للمصيب):' : 'Explanation:'}</span> <p className="font-bold text-base">{q.explanation}</p></div></div>}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="w-full md:w-1/3 flex flex-col gap-4">
+                            {!q.imageUrl && !q.isGeneratingImage && viewMode === 'teacher' && <button onClick={() => generateImageForQuestion(q.id, q.text, q.answer, q.type)} className="flex items-center justify-center gap-2 w-full py-4 border-2 border-dashed border-blue-300 text-blue-600 bg-blue-50/50 hover:bg-blue-100 hover:border-blue-400 rounded-2xl font-bold transition-all"><ImageIcon size={20} /> {isArabic ? 'توليد صور توضيحية للسؤال' : 'Generate Visuals'}</button>}
+                            {q.isGeneratingImage && <div className="flex flex-col items-center justify-center gap-3 py-10 border-2 border-slate-200 bg-slate-50 rounded-2xl text-slate-500 shadow-inner"><Loader2 className="animate-spin text-blue-500" size={32} /> <span className="text-sm font-bold">{isArabic ? 'الذكاء الاصطناعي يرسم...' : 'AI is drawing...'}</span></div>}
+                            
+                            {q.imageUrl && (
+                              <div className="space-y-4">
+                                <div className="relative group/img rounded-2xl overflow-hidden border-2 border-slate-200 shadow-sm bg-white p-3">
+                                  <p className="text-xs font-black text-slate-400 mb-2 text-center uppercase tracking-wider">{isArabic ? 'صورة السياق' : 'Context Image'}</p>
+                                  <img src={q.imageUrl} className="w-full h-auto object-cover rounded-xl border border-slate-100" />
+                                  <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-wrap gap-2 items-center justify-center backdrop-blur-sm p-2">
+                                    <button onClick={() => setEnlargedImage(q.imageUrl)} className="bg-white text-slate-900 px-4 py-2.5 rounded-xl font-black text-sm hover:bg-slate-100 shadow-xl flex items-center gap-2 transition-transform hover:scale-105">
+                                      <ZoomIn size={18} /> {isArabic ? 'تكبير' : 'Enlarge'}
+                                    </button>
+                                    {viewMode === 'teacher' && (
+                                      <button onClick={() => generateImageForQuestion(q.id, q.text, q.answer, q.type, 'question')} className="bg-blue-600 text-white px-4 py-2.5 rounded-xl font-black text-sm hover:bg-blue-700 shadow-xl flex items-center gap-2 transition-transform hover:scale-105">
+                                        <RefreshCw size={18} /> {isArabic ? 'إعادة' : 'Redraw'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                {viewMode === 'teacher' && q.imageAUrl && (
+                                   <div className="relative group/img rounded-2xl overflow-hidden border-2 border-amber-200 shadow-sm bg-amber-50 p-3">
+                                     <p className="text-xs font-black text-amber-600 mb-2 text-center uppercase tracking-wider">{isArabic ? 'صورة التلميح' : 'Hint Image'}</p>
+                                     <img src={q.imageAUrl} className="w-full h-auto object-cover rounded-xl border border-amber-100" />
+                                     <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-wrap gap-2 items-center justify-center backdrop-blur-sm p-2">
+                                       <button onClick={() => setEnlargedImage(q.imageAUrl)} className="bg-white text-slate-900 px-4 py-2.5 rounded-xl font-black text-sm hover:bg-slate-100 shadow-xl flex items-center gap-2 transition-transform hover:scale-105">
+                                         <ZoomIn size={18} /> {isArabic ? 'تكبير' : 'Enlarge'}
+                                       </button>
+                                       <button onClick={() => generateImageForQuestion(q.id, q.text, q.answer, q.type, 'hint')} className="bg-amber-600 text-white px-4 py-2.5 rounded-xl font-black text-sm hover:bg-amber-700 shadow-xl flex items-center gap-2 transition-transform hover:scale-105">
+                                         <RefreshCw size={18} /> {isArabic ? 'إعادة' : 'Redraw'}
+                                       </button>
+                                     </div>
+                                   </div>
+                                )}
+                              </div>
+                            )}
+                            {q.imageError && viewMode === 'teacher' && <p className="text-xs text-red-500 text-center font-bold bg-red-50 p-2 rounded-lg border border-red-100">{q.imageError}</p>}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+            
+            {viewMode === 'teacher' && (
+              <div className="flex flex-col sm:flex-row items-center gap-4 pt-8 mt-8 border-t-2 border-slate-200">
+                <button onClick={addManualQuestion} className="flex items-center justify-center gap-2 w-full sm:w-auto bg-white border-2 border-blue-200 text-blue-700 hover:bg-blue-50 px-8 py-4 rounded-2xl font-black shadow-sm transition-colors"><Plus size={22} /> {isArabic ? 'إضافة سؤال يدوياً' : 'Add Question'}</button>
+                <div className="flex-1 w-full flex items-center gap-3 bg-slate-100 p-3 rounded-2xl border border-slate-200">
+                    <div className="bg-white p-1.5 rounded-xl shadow-sm border border-slate-200 flex-1 flex items-center">
+                       <select value={extraQuestionType} onChange={(e) => setExtraQuestionType(e.target.value)} className="w-full px-3 py-2 rounded-lg border-none bg-transparent focus:ring-0 outline-none font-bold text-slate-700 cursor-pointer">
+                           {(isArabic ? QUESTION_TYPES : QUESTION_TYPES_EN).filter((_,i)=>i>0).map((type, idx) => <option key={idx} value={type}>{type}</option>)}
+                       </select>
+                    </div>
+                    <button onClick={generateExtraQuestion} disabled={isGeneratingExtra} className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-8 py-3.5 rounded-xl font-black disabled:opacity-70 shadow-md transition-transform active:scale-95">
+                        {isGeneratingExtra ? <Loader2 className="animate-spin" size={20} /> : <Sparkles size={20} />}
+                        {isArabic ? 'توليد سؤال إضافي' : 'Generate Extra'}
+                    </button>
+                </div>
+              </div>
+            )}
+
+            {viewMode === 'teacher' && (
+               <div className="mt-16 bg-slate-900 rounded-[2.5rem] p-10 text-white text-center shadow-2xl relative overflow-hidden">
+                  <div className="absolute -top-32 -right-32 w-96 h-96 bg-blue-500 opacity-20 rounded-full blur-[100px] pointer-events-none"></div>
+                  <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-emerald-500 opacity-20 rounded-full blur-[100px] pointer-events-none"></div>
+                  
+                  <div className="relative z-10 space-y-8 max-w-2xl mx-auto">
+                     <div className="w-20 h-20 bg-white/10 rounded-3xl flex items-center justify-center mx-auto backdrop-blur-md border border-white/20 shadow-xl"><Download size={36} className="text-white drop-shadow-md" /></div>
+                     <div>
+                        <h3 className="text-3xl font-black mb-3">{isArabic ? 'خيارات التصدير والطباعة' : 'Export & Print Options'}</h3>
+                        <p className="text-slate-300 font-medium text-lg">{isArabic ? 'اختر كيف تريد مشاركة هذا الإبداع مع طلابك.' : 'Choose how you want to share this worksheet.'}</p>
+                     </div>
+                     
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                         <button onClick={() => { setPrintTarget('student'); setShowPrintModal(true); }} className="bg-white/10 hover:bg-white/20 backdrop-blur-md transition-all px-6 py-5 rounded-2xl font-black text-lg border border-white/20 shadow-lg flex flex-col items-center justify-center gap-3 group">
+                            <Printer size={32} className="text-blue-400 group-hover:scale-110 transition-transform" />
+                            {isArabic ? 'طباعة للطلاب (فارغة)' : 'Print for Students'}
+                         </button>
+                         <button onClick={() => { setPrintTarget('teacher'); setShowPrintModal(true); }} className="bg-white/10 hover:bg-white/20 backdrop-blur-md transition-all px-6 py-5 rounded-2xl font-black text-lg border border-white/20 shadow-lg flex flex-col items-center justify-center gap-3 group">
+                            <CheckCircle2 size={32} className="text-emerald-400 group-hover:scale-110 transition-transform" />
+                            {isArabic ? 'طباعة نموذج الإجابة' : 'Print Answer Key'}
+                         </button>
+                     </div>
+                     
+                     <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row justify-center gap-4 flex-wrap">
+                        <button onClick={generateStandaloneHTML} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white transition-all px-8 py-4 rounded-xl font-black text-base flex items-center justify-center gap-2 shadow-lg">
+                            <Sparkles size={20} />
+                            {isArabic ? 'تحميل كملف HTML تفاعلي' : 'Download Interactive HTML'}
+                        </button>
+                        <button onClick={handleExportCSV} className="bg-emerald-600/30 hover:bg-emerald-600/50 text-white border border-emerald-500/30 transition-all px-8 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 shadow-lg">
+                            <Sheet size={20} />
+                            {isArabic ? 'تصدير لملف Excel' : 'Export to Excel (CSV)'}
+                        </button>
+                        <button onClick={handleExportGAS} className="bg-purple-600/30 hover:bg-purple-600/50 text-white border border-purple-500/30 transition-all px-8 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 shadow-lg">
+                            <Code size={20} />
+                            {isArabic ? 'تصدير كود Google Forms' : 'Google Forms Script'}
+                        </button>
+                     </div>
+                  </div>
+               </div>
+            )}
+          </div>
+        )}
+
+        <div className="pt-20 pb-10 text-center space-y-6">
+           <div className="inline-block px-10 py-4 bg-slate-100 border border-slate-200 rounded-full shadow-inner"><p className="text-slate-600 font-black text-lg" style={{fontFamily: "'Cairo', sans-serif"}}>✨ {isArabic ? 'بالعلم والمعرفة نبني جيلاً يقود المستقبل' : 'With knowledge, we build a generation that leads the future'} ✨</p></div>
+           <div className="flex flex-col items-center justify-center gap-1 text-slate-400">
+             <div className="w-16 h-1 bg-slate-200 rounded-full mb-3"></div>
+             <p className="font-bold text-sm uppercase tracking-widest">{isArabic ? 'تصميم وإعداد' : 'Designed By'}</p>
+             <p className="font-black text-slate-800 text-xl tracking-wide mt-1">المعلم محمد بركات</p>
+             <p className="font-bold text-slate-500 text-sm mt-0.5" dir="ltr">2026</p>
+           </div>
+        </div>
+
+        {/* Print Modal */}
+        {showPrintModal && (
+          <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setShowPrintModal(false)}>
+            <div className="bg-white rounded-[2rem] p-8 max-w-md w-full shadow-2xl relative animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+               <button onClick={() => setShowPrintModal(false)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-2 rounded-full transition-colors"><X size={20} /></button>
+               <h3 className="text-2xl font-black text-slate-800 mb-8 flex items-center gap-3"><div className="p-2 bg-blue-100 rounded-xl"><Printer className="text-blue-600" /></div> {isArabic ? 'إعدادات الطباعة' : 'Print Settings'}</h3>
+               
+               <div className="space-y-8">
+                  <div className="space-y-3">
+                     <p className="font-black text-slate-700">{isArabic ? 'نوع الورقة:' : 'Document Type:'}</p>
+                     <div className="flex gap-3">
+                        <label className={`flex-1 p-4 rounded-2xl border-2 cursor-pointer transition-all text-center font-black ${docSettings.type === 'worksheet' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                           <input type="radio" name="docType" className="hidden" checked={docSettings.type === 'worksheet'} onChange={() => setDocSettings({...docSettings, type: 'worksheet'})} />
+                           {isArabic ? 'ورقة عمل' : 'Worksheet'}
+                        </label>
+                        <label className={`flex-1 p-4 rounded-2xl border-2 cursor-pointer transition-all text-center font-black ${docSettings.type === 'exam' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                           <input type="radio" name="docType" className="hidden" checked={docSettings.type === 'exam'} onChange={() => { setDocSettings({...docSettings, type: 'exam', marks: totalMarks}); }} />
+                           {isArabic ? 'اختبار' : 'Exam'}
+                        </label>
+                     </div>
+                  </div>
+
+                  {docSettings.type === 'exam' && (
+                     <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                        <div className="space-y-2">
+                           <label className="text-sm font-black text-slate-700">{isArabic ? 'المدة (دقائق):' : 'Time (Mins):'}</label>
+                           <input type="number" value={docSettings.time} onChange={e => setDocSettings({...docSettings, time: e.target.value})} className="w-full p-4 rounded-xl border-2 border-slate-200 outline-none focus:border-emerald-500 bg-slate-50 text-center font-bold text-lg" />
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-sm font-black text-slate-700">{isArabic ? 'الدرجة الكلية:' : 'Total Marks:'}</label>
+                           <input type="number" value={docSettings.marks} onChange={e => setDocSettings({...docSettings, marks: e.target.value})} className="w-full p-4 rounded-xl border-2 border-slate-200 outline-none focus:border-emerald-500 bg-emerald-50 text-emerald-700 text-center font-black text-lg" />
+                        </div>
+                     </div>
+                  )}
+
+                  {questions.length > 0 && (
+                     <div className="space-y-3 bg-slate-50 p-5 rounded-2xl border-2 border-slate-200 max-h-64 overflow-y-auto shadow-inner">
+                        <div className="flex justify-between items-center sticky top-0 bg-slate-50 pb-3 border-b-2 border-slate-200 z-10">
+                           <p className="font-black text-slate-700 text-sm">{isArabic ? 'توزيع درجات الأسئلة:' : 'Sub-Marks:'}</p>
+                           <span className="bg-blue-100 text-blue-800 text-xs font-black px-3 py-1.5 rounded-lg shadow-sm border border-blue-200 flex items-center gap-1">
+                              {isArabic ? 'المجموع:' : 'Total:'} {totalMarks}
+                           </span>
+                        </div>
+                        <div className="space-y-2 pt-3">
+                           {questions.map((q, idx) => (
+                              <div key={q.id} className="flex items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-100 shadow-sm hover:border-blue-200 transition-colors">
+                                 <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                                    <span className="w-8 h-8 flex items-center justify-center bg-slate-100 text-slate-700 rounded-lg text-xs font-black flex-shrink-0">{idx + 1}</span>
+                                    <span className="text-xs text-slate-600 truncate font-bold" title={q.text}>{q.text}</span>
+                                 </div>
+                                 <div className="flex items-center gap-1">
+                                    <input 
+                                       type="number" step="0.5" min="0" 
+                                       value={q.marks ?? 1} 
+                                       onChange={e => {
+                                          handleQuestionEdit(q.id, 'marks', parseFloat(e.target.value) || 0);
+                                          if(docSettings.type === 'exam') setDocSettings(prev => ({...prev, marks: questions.reduce((sum, item) => sum + (item.id === q.id ? (parseFloat(e.target.value)||0) : (parseFloat(item.marks)||0)), 0)}));
+                                       }} 
+                                       className="w-16 p-2 text-center text-sm font-black border-2 border-slate-200 rounded-lg focus:border-blue-500 outline-none bg-blue-50 text-blue-700"
+                                    />
+                                 </div>
+                              </div>
+                           ))}
+                        </div>
+                     </div>
+                  )}
+
+                  <button onClick={handleExportPDF} className="w-full bg-slate-900 hover:bg-black text-white font-black text-lg py-5 rounded-2xl shadow-xl transition-transform active:scale-95 flex justify-center items-center gap-3 mt-4">
+                     {isArabic ? 'بدء الطباعة الآن' : 'Start Print Now'} <Printer size={22} />
+                  </button>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {enlargedImage && !showPrintModal && (
+          <div className="fixed inset-0 z-[400] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4 transition-all" onClick={() => setEnlargedImage(null)}>
+            <button onClick={() => setEnlargedImage(null)} className="absolute top-6 right-6 bg-white/10 hover:bg-white/20 text-white p-3 rounded-full transition-colors border border-white/20">
+              <X size={24} />
+            </button>
+            <img src={enlargedImage} alt="Enlarged" className="max-w-full max-h-[90vh] rounded-3xl shadow-2xl border-4 border-white/10 cursor-default" onClick={e => e.stopPropagation()} />
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
